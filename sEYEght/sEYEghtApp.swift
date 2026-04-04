@@ -6,12 +6,23 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct sEYEghtApp: App {
+    @State private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NavigationStack {
+                OnboardingContainerView()
+            }
+            .environment(appState)
+            .preferredColorScheme(.dark)
+            .onAppear {
+                print("[sEYEghtApp] App launched")
+            }
         }
+        .modelContainer(for: UserSettings.self)
     }
 }
