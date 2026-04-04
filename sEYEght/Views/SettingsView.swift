@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 /// S-004: Settings screen with sliders and subscription access.
 struct SettingsView: View {
@@ -14,6 +15,8 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsArray: [UserSettings]
     @State private var navigateToSubscription = false
+    @State private var settingsSynth = AVSpeechSynthesizer()
+    @State private var speechWorkItem: DispatchWorkItem?
 
     private var settings: UserSettings {
         if let existing = settingsArray.first {
@@ -157,6 +160,29 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $navigateToSubscription) {
             SubscriptionView()
         }
+        .onChange(of: settings.hapticIntensityLevel) { _, newVal in
+            speakSettingChange("Haptic intensity \(Int(newVal * 100)) percent")
+        }
+        .onChange(of: settings.radarRangeMeters) { _, newVal in
+            speakSettingChange(String(format: "Radar range %.1f meters", newVal))
+        }
+        .onChange(of: settings.speechRate) { _, newVal in
+            speakSettingChange(String(format: "Speech speed %.1f x", newVal * 2))
+        }
+    }
+
+    /// Debounced speech for slider changes — waits 0.6s after last change to speak
+    private func speakSettingChange(_ text: String) {
+        speechWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak settingsSynth] in
+            settingsSynth?.stopSpeaking(at: .immediate)
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.rate = 0.5
+            utterance.volume = 0.7
+            settingsSynth?.speak(utterance)
+        }
+        speechWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
     }
 }
 

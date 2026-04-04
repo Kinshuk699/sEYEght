@@ -140,4 +140,44 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
             AudioSessionManager.shared.endSpeaking()
         }
     }
+
+    /// Reverse-geocode the user's current GPS location and speak it aloud.
+    func speakCurrentLocation() {
+        guard let location = locationManager.location else {
+            speakInstruction("Location not available yet.")
+            return
+        }
+
+        let geocoder = CLGeocoder()
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("[NavigationManager] ❌ Reverse geocode failed: \(error)")
+                self.speakInstruction("Could not determine your location.")
+                return
+            }
+
+            guard let placemark = placemarks?.first else {
+                self.speakInstruction("Could not determine your location.")
+                return
+            }
+
+            var parts: [String] = []
+            if let street = placemark.thoroughfare {
+                if let number = placemark.subThoroughfare {
+                    parts.append("\(number) \(street)")
+                } else {
+                    parts.append(street)
+                }
+            }
+            if let city = placemark.locality {
+                parts.append(city)
+            }
+
+            let locationText = parts.isEmpty ? "Unknown location" : parts.joined(separator: ", ")
+            print("[NavigationManager] 📍 Current location: \(locationText)")
+            self.speakInstruction("You are near \(locationText)")
+        }
+    }
 }

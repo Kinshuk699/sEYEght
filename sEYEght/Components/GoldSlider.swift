@@ -15,6 +15,7 @@ struct GoldSlider: View {
     let lowLabel: String
     let highLabel: String
     var displayValue: String? = nil
+    @State private var lastHapticValue: Double = -1
 
     var body: some View {
         VStack(spacing: 12) {
@@ -37,8 +38,13 @@ struct GoldSlider: View {
                 Slider(value: $value, in: range)
                     .tint(SeyeghtTheme.accent)
                     .onChange(of: value) { _, newValue in
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
+                        // Throttle haptics: only fire when value changes by at least 5% of range
+                        let step = (range.upperBound - range.lowerBound) * 0.05
+                        if abs(newValue - lastHapticValue) >= step {
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.impactOccurred()
+                            lastHapticValue = newValue
+                        }
                     }
                 Text(highLabel)
                     .font(SeyeghtTheme.caption)

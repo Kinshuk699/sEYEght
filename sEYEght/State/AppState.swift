@@ -28,6 +28,7 @@ final class AppState {
     // MARK: - Session
     var isListeningForWakeWord = false
     var isSeyeghtActive = false
+    var hasCompletedOnboarding = false
 
     // MARK: - Subscription
     var isAIVisionSubscribed = false

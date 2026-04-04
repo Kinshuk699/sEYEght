@@ -17,6 +17,7 @@ struct sEYEghtApp: App {
     @State private var visionManager = VisionManager()
     @State private var navigationManager = NavigationManager()
     @State private var subscriptionManager = SubscriptionManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -33,6 +34,25 @@ struct sEYEghtApp: App {
             .preferredColorScheme(.dark)
             .onAppear {
                 print("[sEYEghtApp] App launched")
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .background:
+                    lidarManager.stop()
+                    speechManager.stopListening()
+                    hapticsManager.stopTone()
+                    print("[sEYEghtApp] Entered background — stopped LiDAR/speech")
+                case .active:
+                    // Re-start if they were running before (user returned from background)
+                    if appState.hasCompletedOnboarding {
+                        hapticsManager.ensureEngine()
+                        lidarManager.start()
+                        speechManager.startListening()
+                        print("[sEYEghtApp] Returned to foreground — restarted LiDAR/speech")
+                    }
+                default:
+                    break
+                }
             }
         }
         .modelContainer(for: UserSettings.self)

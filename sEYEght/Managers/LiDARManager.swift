@@ -20,6 +20,8 @@ final class LiDARManager: NSObject, ARSessionDelegate {
     private var arSession: ARSession?
     private var lastProcessTime: TimeInterval = 0
     private let minProcessInterval: TimeInterval = 1.0 / 12.0 // ~12fps
+    private var isProcessing = false
+    private let processingQueue = DispatchQueue(label: "com.seyeght.lidar", qos: .userInteractive)
 
     func start() {
         guard ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) else {
@@ -53,10 +55,15 @@ final class LiDARManager: NSObject, ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         let now = frame.timestamp
         guard now - lastProcessTime >= minProcessInterval else { return }
+        guard !isProcessing else { return }
         lastProcessTime = now
 
         guard let depthMap = frame.sceneDepth?.depthMap else { return }
-        processDepthMap(depthMap)
+        isProcessing = true
+        processingQueue.async { [weak self] in
+            self?.processDepthMap(depthMap)
+            self?.isProcessing = false
+        }
     }
 
     private func processDepthMap(_ depthMap: CVPixelBuffer) {
