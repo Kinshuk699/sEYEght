@@ -79,10 +79,10 @@ struct PermissionsView: View {
         .navigationDestination(isPresented: $navigateToDashboard) {
             DashboardView()
         }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                Narrator.shared.speak("Permissions screen. Seyeght needs Camera, Location, Microphone, and Speech Recognition. Tap each Grant button to allow. Once all are granted, tap Continue at the bottom.")
-            }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            Narrator.shared.speak("Permissions screen. Seyeght needs Camera, Location, Microphone, and Speech Recognition. Tap each Grant button to allow. Once all are granted, tap Continue at the bottom.")
         }
         .onDisappear {
             Narrator.shared.stop()

@@ -93,10 +93,10 @@ struct MountPhoneStepView: View {
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                Narrator.shared.speak("Step 2. Mount your phone. Attach your iPhone to your chest using a lanyard or clip, with the camera facing forward. Tap Next at the bottom to continue.")
-            }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            Narrator.shared.speak("Step 2. Mount your phone. Attach your iPhone to your chest using a lanyard or clip, with the camera facing forward. Tap Next at the bottom to continue.")
         }
         .onDisappear {
             Narrator.shared.stop()

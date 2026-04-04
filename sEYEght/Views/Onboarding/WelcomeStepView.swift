@@ -64,10 +64,10 @@ struct WelcomeStepView: View {
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                Narrator.shared.speak("Welcome to Seyeght. GPS, LiDAR, AI Vision, all in one. Tap the Next button at the bottom to continue. Step 1 of 3.")
-            }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            Narrator.shared.speak("Welcome to Seyeght. GPS, LiDAR, AI Vision, all in one. Tap the Next button at the bottom to continue. Step 1 of 3.")
         }
         .onDisappear {
             Narrator.shared.stop()

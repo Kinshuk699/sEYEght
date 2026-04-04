@@ -93,10 +93,10 @@ struct PermissionsIntroStepView: View {
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                Narrator.shared.speak("Step 3. Let's get started. We'll ask for Camera, Location, Microphone, and Speech Recognition permissions next. Tap Continue at the bottom.")
-            }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            Narrator.shared.speak("Step 3. Let's get started. We'll ask for Camera, Location, Microphone, and Speech Recognition permissions next. Tap Continue at the bottom.")
         }
         .onDisappear {
             Narrator.shared.stop()
