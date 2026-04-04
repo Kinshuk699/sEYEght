@@ -32,6 +32,7 @@ struct WelcomeStepView: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Welcome to Seyeght")
+                .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 16)
 
             Text("GPS. LiDAR. AI Vision. All in one.")
@@ -47,6 +48,7 @@ struct WelcomeStepView: View {
                 Circle().fill(SeyeghtTheme.secondaryText.opacity(0.4)).frame(width: 8, height: 8)
                 Circle().fill(SeyeghtTheme.secondaryText.opacity(0.4)).frame(width: 8, height: 8)
             }
+            .accessibilityHidden(true)
             .padding(.bottom, 24)
 
             HapticButton("Next") {

@@ -32,6 +32,7 @@ struct PermissionsIntroStepView: View {
                         .foregroundColor(SeyeghtTheme.primaryText)
                 }
                 .accessibilityLabel("Go back")
+                .accessibilityHint("Returns to the previous step")
                 Spacer()
             }
             .padding(.top, 16)
@@ -40,6 +41,7 @@ struct PermissionsIntroStepView: View {
                 .font(SeyeghtTheme.largeTitle)
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, 24)
                 .padding(.bottom, 16)
 
@@ -70,6 +72,7 @@ struct PermissionsIntroStepView: View {
                         Rectangle()
                             .fill(SeyeghtTheme.accent)
                             .frame(width: 3, height: 40)
+                            .accessibilityHidden(true)
                         Text(item.label)
                             .font(SeyeghtTheme.body)
                             .foregroundColor(SeyeghtTheme.primaryText)

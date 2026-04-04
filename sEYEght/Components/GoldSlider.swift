@@ -37,7 +37,8 @@ struct GoldSlider: View {
                 Slider(value: $value, in: range)
                     .tint(SeyeghtTheme.accent)
                     .onChange(of: value) { _, newValue in
-                        print("[GoldSlider] \(label) changed to \(newValue)")
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
                     }
                 Text(highLabel)
                     .font(SeyeghtTheme.caption)

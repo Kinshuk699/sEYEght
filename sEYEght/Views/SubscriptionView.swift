@@ -121,6 +121,7 @@ struct SubscriptionView: View {
         }
         .background(SeyeghtTheme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
@@ -131,7 +132,7 @@ struct SubscriptionView: View {
                     Image(systemName: "arrow.left")
                         .foregroundColor(SeyeghtTheme.accent)
                 }
-                .accessibilityLabel("Go back to settings")
+                .accessibilityLabel("Go back")
             }
             ToolbarItem(placement: .principal) {
                 Text("Seyeght")

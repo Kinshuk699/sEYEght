@@ -106,6 +106,7 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: "chevron.right")
                             .foregroundColor(SeyeghtTheme.accent)
+                            .accessibilityHidden(true)
                     }
                     .padding(20)
                     .background(SeyeghtTheme.cardBackground)
@@ -133,6 +134,7 @@ struct SettingsView: View {
         }
         .background(SeyeghtTheme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Settings")

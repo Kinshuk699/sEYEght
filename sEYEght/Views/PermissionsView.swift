@@ -18,6 +18,7 @@ struct PermissionsView: View {
                 .font(SeyeghtTheme.largeTitle)
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, 16)
                 .padding(.bottom, 8)
 

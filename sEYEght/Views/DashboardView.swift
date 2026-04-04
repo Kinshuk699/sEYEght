@@ -32,6 +32,7 @@ struct DashboardView: View {
                         Circle()
                             .fill(SeyeghtTheme.accent)
                             .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
                         Text("Seyeght Active")
                             .font(SeyeghtTheme.caption)
                             .foregroundColor(SeyeghtTheme.accent)

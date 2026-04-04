@@ -35,6 +35,7 @@ struct MountPhoneStepView: View {
                 .font(SeyeghtTheme.largeTitle)
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
                 .padding(.top, 24)
                 .padding(.bottom, 16)
 
