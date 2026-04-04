@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 /// S-002: Sequential permission granting screen.
 struct PermissionsView: View {
     @State private var permissionsManager = PermissionsManager()
     @State private var navigateToDashboard = false
+    @State private var screenSynth = AVSpeechSynthesizer()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,6 +78,14 @@ struct PermissionsView: View {
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToDashboard) {
             DashboardView()
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let utterance = AVSpeechUtterance(string: "Permissions screen. Seyeght needs Camera, Location, Microphone, and Speech Recognition. Tap each Grant button to allow. Once all are granted, tap Continue at the bottom.")
+                utterance.rate = 0.45
+                utterance.volume = 0.9
+                screenSynth.speak(utterance)
+            }
         }
     }
 }

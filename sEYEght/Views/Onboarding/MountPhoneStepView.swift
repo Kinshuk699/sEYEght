@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 /// Onboarding Step 2: Instructions to mount phone on chest.
 struct MountPhoneStepView: View {
     let onNext: () -> Void
     let onBack: () -> Void
+    @State private var screenSynth = AVSpeechSynthesizer()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,5 +94,13 @@ struct MountPhoneStepView: View {
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let utterance = AVSpeechUtterance(string: "Step 2. Mount your phone. Attach your iPhone to your chest using a lanyard or clip, with the camera facing forward. Tap Next at the bottom to continue.")
+                utterance.rate = 0.45
+                utterance.volume = 0.9
+                screenSynth.speak(utterance)
+            }
+        }
     }
 }

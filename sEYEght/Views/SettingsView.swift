@@ -13,6 +13,7 @@ import AVFoundation
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(HapticsManager.self) private var hapticsManager
     @Query private var settingsArray: [UserSettings]
     @State private var navigateToSubscription = false
     @State private var settingsSynth = AVSpeechSynthesizer()
@@ -56,6 +57,18 @@ struct SettingsView: View {
                     displayValue: String(format: "%.1fm", settings.radarRangeMeters)
                 )
 
+                GoldSlider(
+                    label: "Beep Volume",
+                    value: Binding(
+                        get: { settings.beepVolume },
+                        set: { settings.beepVolume = $0 }
+                    ),
+                    range: 0...0.5,
+                    lowLabel: "Off",
+                    highLabel: "Loud",
+                    displayValue: String(format: "%.0f%%", settings.beepVolume * 200)
+                )
+
                 // MARK: - Voice & Speech
                 SectionHeader(title: "VOICE & SPEECH")
 
@@ -79,14 +92,14 @@ struct SettingsView: View {
                             .foregroundColor(SeyeghtTheme.primaryText)
                     }
                     Spacer()
-                    Text("Hey Seyeght")
+                    Text("Hey Sight")
                         .font(SeyeghtTheme.body)
                         .foregroundColor(SeyeghtTheme.secondaryText)
                 }
                 .padding(20)
                 .background(SeyeghtTheme.cardBackground)
                 .cornerRadius(SeyeghtTheme.cardCornerRadius)
-                .accessibilityLabel("Wake phrase: Hey Seyeght. Read only.")
+                .accessibilityLabel("Wake phrase: Hey Sight. Read only.")
 
                 // MARK: - AI Vision
                 SectionHeader(title: "AI VISION")
@@ -161,13 +174,25 @@ struct SettingsView: View {
             SubscriptionView()
         }
         .onChange(of: settings.hapticIntensityLevel) { _, newVal in
+            hapticsManager.userIntensityLevel = newVal
             speakSettingChange("Haptic intensity \(Int(newVal * 100)) percent")
         }
         .onChange(of: settings.radarRangeMeters) { _, newVal in
+            hapticsManager.maxRange = newVal
             speakSettingChange(String(format: "Radar range %.1f meters", newVal))
         }
         .onChange(of: settings.speechRate) { _, newVal in
             speakSettingChange(String(format: "Speech speed %.1f x", newVal * 2))
+        }
+        .onChange(of: settings.beepVolume) { _, newVal in
+            hapticsManager.audioToneVolume = Float(newVal)
+            speakSettingChange("Beep volume \(Int(newVal * 200)) percent")
+        }
+        .onAppear {
+            // Sync stored settings to live manager values
+            hapticsManager.userIntensityLevel = settings.hapticIntensityLevel
+            hapticsManager.maxRange = settings.radarRangeMeters
+            hapticsManager.audioToneVolume = Float(settings.beepVolume)
         }
     }
 

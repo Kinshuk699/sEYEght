@@ -39,7 +39,7 @@ struct SubscriptionView: View {
                     .foregroundColor(SeyeghtTheme.primaryText)
                     .accessibilityAddTraits(.isHeader)
 
-                Text("Say 'Hey Seyeght' and get an instant spoken description of your surroundings, powered by AI.")
+                Text("Say 'Hey Sight' and get an instant spoken description of your surroundings, powered by AI.")
                     .font(SeyeghtTheme.body)
                     .foregroundColor(SeyeghtTheme.secondaryText)
                     .multilineTextAlignment(.center)

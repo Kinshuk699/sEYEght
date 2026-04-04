@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 /// Onboarding Step 3: Preview of permissions to be requested.
 struct PermissionsIntroStepView: View {
     let onContinue: () -> Void
     let onBack: () -> Void
+    @State private var screenSynth = AVSpeechSynthesizer()
 
     private let permissionItems: [(icon: String, label: String)] = [
         ("camera.fill", "Camera for object recognition"),
@@ -91,5 +93,13 @@ struct PermissionsIntroStepView: View {
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let utterance = AVSpeechUtterance(string: "Step 3. Let's get started. We'll ask for Camera, Location, Microphone, and Speech Recognition permissions next. Tap Continue at the bottom.")
+                utterance.rate = 0.45
+                utterance.volume = 0.9
+                screenSynth.speak(utterance)
+            }
+        }
     }
 }

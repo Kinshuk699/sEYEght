@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import AVFoundation
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
@@ -17,6 +18,8 @@ struct DashboardView: View {
     @Environment(VisionManager.self) private var visionManager
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(SubscriptionManager.self) private var subscriptionManager
+    @Environment(\.modelContext) private var modelContext
+    @Query private var settingsArray: [UserSettings]
 
     @State private var navigateToSettings = false
     @State private var navigateToSubscription = false
@@ -196,6 +199,14 @@ struct DashboardView: View {
         }
         .onAppear {
             appState.hasCompletedOnboarding = true
+
+            // Sync stored settings to live managers
+            if let settings = settingsArray.first {
+                hapticsManager.userIntensityLevel = settings.hapticIntensityLevel
+                hapticsManager.maxRange = settings.radarRangeMeters
+                hapticsManager.audioToneVolume = Float(settings.beepVolume)
+            }
+
             // Defer hardware init slightly so the app is fully active
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 hapticsManager.ensureEngine()

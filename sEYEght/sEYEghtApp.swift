@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 @main
 struct sEYEghtApp: App {
@@ -33,6 +34,14 @@ struct sEYEghtApp: App {
             .environment(subscriptionManager)
             .preferredColorScheme(.dark)
             .onAppear {
+                // Configure audio session early so speech works on all screens including onboarding
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
+                    try session.setActive(true)
+                } catch {
+                    print("[sEYEghtApp] Audio session setup error: \(error)")
+                }
                 print("[sEYEghtApp] App launched")
             }
             .onChange(of: scenePhase) { _, newPhase in

@@ -66,31 +66,36 @@ final class LiDARManager: NSObject, ARSessionDelegate {
         lastProcessTime = now
 
         guard let depthMap = frame.sceneDepth?.depthMap else { return }
+
+        // Copy depth data immediately so we don't retain the ARFrame
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        let depthData: [Float32]
+        if let baseAddress = CVPixelBufferGetBaseAddress(depthMap) {
+            let buffer = baseAddress.assumingMemoryBound(to: Float32.self)
+            depthData = Array(UnsafeBufferPointer(start: buffer, count: width * height))
+        } else {
+            CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+            return
+        }
+        CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+
         isProcessing = true
         processingQueue.async { [weak self] in
-            self?.processDepthMap(depthMap)
+            self?.processDepthData(depthData, width: width, height: height)
             self?.isProcessing = false
         }
     }
 
-    private func processDepthMap(_ depthMap: CVPixelBuffer) {
-        let width = CVPixelBufferGetWidth(depthMap)
-        let height = CVPixelBufferGetHeight(depthMap)
-
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-
-        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else { return }
-        let buffer = baseAddress.assumingMemoryBound(to: Float32.self)
-
+    private func processDepthData(_ buffer: [Float32], width: Int, height: Int) {
         var minDist: Float = Float.greatestFiniteMagnitude
         var minX: Int = width / 2
 
         // Only scan TOP 50% of Y-axis (ignore ground/cane)
-        let yStart = 0
         let yEnd = height / 2
 
-        for y in yStart..<yEnd {
+        for y in 0..<yEnd {
             for x in 0..<width {
                 let index = y * width + x
                 let depth = buffer[index]

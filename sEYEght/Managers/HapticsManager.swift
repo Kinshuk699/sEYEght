@@ -21,6 +21,9 @@ final class HapticsManager {
     /// Whether audio proximity tones are enabled (user can toggle)
     var audioToneEnabled: Bool = true
 
+    /// Volume of the proximity beep tone: 0.0 (silent) to 1.0 (full)
+    var audioToneVolume: Float = 0.15
+
     /// Maximum detection range in meters
     var maxRange: Double = 1.5
 
@@ -92,7 +95,7 @@ final class HapticsManager {
                 if freq > 0 && isEnabled && inBeep {
                     self.tonePhase += 2.0 * .pi * freq / self.sampleRate
                     if self.tonePhase > 2.0 * .pi { self.tonePhase -= 2.0 * .pi }
-                    sample = Float(sin(self.tonePhase)) * 0.3 // Volume cap at 0.3
+                    sample = Float(sin(self.tonePhase)) * self.audioToneVolume
                 }
 
                 for buffer in ablPointer {
