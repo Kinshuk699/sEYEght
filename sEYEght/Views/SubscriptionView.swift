@@ -6,11 +6,14 @@
 //
 
 import SwiftUI
+import StoreKit
 
 /// S-005: AI Vision subscription/paywall screen.
 struct SubscriptionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(SubscriptionManager.self) private var subscriptionManager
     @State private var selectedPlan: SubscriptionPlan = .annual
+    @State private var isPurchasing = false
 
     enum SubscriptionPlan {
         case monthly, annual
@@ -81,16 +84,30 @@ struct SubscriptionView: View {
                     }
                 }
 
-                HapticButton("Subscribe Now") {
-                    print("[SubscriptionView] Subscribe tapped — plan: \(selectedPlan)")
-                    // TODO: Wire to SubscriptionManager.purchase() in Phase 5
+                HapticButton("Subscribe Now", isEnabled: !isPurchasing) {
+                    let targetID = selectedPlan == .monthly
+                        ? "com.seyeght.aivision.monthly"
+                        : "com.seyeght.aivision.annual"
+                    guard let product = subscriptionManager.products.first(where: { $0.id == targetID }) else {
+                        return
+                    }
+                    isPurchasing = true
+                    Task {
+                        await subscriptionManager.purchase(product)
+                        isPurchasing = false
+                        if subscriptionManager.isSubscribed { dismiss() }
+                    }
                 }
 
                 Button {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
-                    print("[SubscriptionView] Restore Purchase tapped")
-                    // TODO: Wire to SubscriptionManager.restore() in Phase 5
+                    isPurchasing = true
+                    Task {
+                        await subscriptionManager.restorePurchases()
+                        isPurchasing = false
+                        if subscriptionManager.isSubscribed { dismiss() }
+                    }
                 } label: {
                     Text("Restore Purchase")
                         .font(SeyeghtTheme.caption)
@@ -123,6 +140,10 @@ struct SubscriptionView: View {
             }
         }
         .toolbarBackground(SeyeghtTheme.background, for: .navigationBar)
+        .task {
+            await subscriptionManager.loadProducts()
+            await subscriptionManager.checkSubscriptionStatus()
+        }
     }
 }
 

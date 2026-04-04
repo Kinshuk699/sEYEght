@@ -9,6 +9,7 @@ import CoreHaptics
 
 /// F-002: Dynamic Haptic & Audio Radar.
 /// Maps closest depth point to haptic intensity.
+@Observable
 final class HapticsManager {
     private var engine: CHHapticEngine?
 

@@ -9,12 +9,17 @@ import SwiftUI
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
-    @State private var navigateToSettings = false
+    @Environment(AppState.self) private var appState
+    @Environment(LiDARManager.self) private var lidarManager
+    @Environment(HapticsManager.self) private var hapticsManager
+    @Environment(SpeechManager.self) private var speechManager
+    @Environment(VisionManager.self) private var visionManager
+    @Environment(NavigationManager.self) private var navigationManager
+    @Environment(SubscriptionManager.self) private var subscriptionManager
 
-    // Placeholder state — will be replaced with real managers in Phase 5
-    @State private var currentDestination: String? = "Central Park"
-    @State private var nextInstruction: String? = "In 200 feet, turn right on 5th Ave"
-    @State private var isSeyeghtActive = true
+    @State private var navigateToSettings = false
+    @State private var navigateToSubscription = false
+    @State private var isAnalyzingScene = false
 
     var body: some View {
         ZStack {
@@ -37,15 +42,15 @@ struct DashboardView: View {
                 .padding(.top, 16)
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
 
-                // Destination display
-                if let destination = currentDestination {
+                // Destination display from NavigationManager
+                if let destination = navigationManager.currentDestination {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(destination)
                             .font(SeyeghtTheme.title)
                             .foregroundColor(SeyeghtTheme.primaryText)
                             .accessibilityLabel("Destination: \(destination)")
 
-                        if let instruction = nextInstruction {
+                        if let instruction = navigationManager.nextInstruction {
                             Text(instruction)
                                 .font(SeyeghtTheme.body)
                                 .foregroundColor(SeyeghtTheme.secondaryText)
@@ -61,14 +66,15 @@ struct DashboardView: View {
 
                 // Center mic icon + hint
                 VStack(spacing: 12) {
-                    Image(systemName: "mic.fill")
+                    Image(systemName: isAnalyzingScene ? "eye.fill" : "mic.fill")
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
-                    Text("Tap anywhere to describe scene")
+                        .symbolEffect(.pulse, isActive: isAnalyzingScene)
+                    Text(isAnalyzingScene ? "Describing scene…" : "Tap anywhere to describe scene")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(SeyeghtTheme.secondaryText)
                 }
-                .accessibilityLabel("Tap anywhere or say Hey Seyeght to describe scene")
+                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Seyeght to describe scene")
 
                 Spacer()
 
@@ -77,7 +83,6 @@ struct DashboardView: View {
                     Button {
                         let generator = UIImpactFeedbackGenerator(style: .medium)
                         generator.impactOccurred()
-                        print("[DashboardView] Settings tapped")
                         navigateToSettings = true
                     } label: {
                         Image(systemName: "gearshape.fill")
@@ -94,14 +99,44 @@ struct DashboardView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-            print("[DashboardView] Full-screen tap — triggering scene description")
-            // TODO: Wire to VisionManager.captureAndAnalyze() in Phase 5
+            handleSceneTap()
+        }
+        .onAppear {
+            lidarManager.start()
+            speechManager.onWakeWordDetected = { handleSceneTap() }
+            speechManager.startListening()
+        }
+        .onDisappear {
+            lidarManager.stop()
+            speechManager.stopListening()
+        }
+        .onChange(of: lidarManager.closestDistance) { _, distance in
+            hapticsManager.updateForDistance(distance)
         }
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToSettings) {
             SettingsView()
+        }
+        .navigationDestination(isPresented: $navigateToSubscription) {
+            SubscriptionView()
+        }
+    }
+
+    private func handleSceneTap() {
+        guard !isAnalyzingScene else { return }
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+
+        guard subscriptionManager.isSubscribed else {
+            // Not subscribed — route to paywall
+            navigateToSubscription = true
+            return
+        }
+
+        isAnalyzingScene = true
+        Task {
+            await visionManager.captureAndAnalyze(from: lidarManager.session)
+            isAnalyzingScene = false
         }
     }
 }

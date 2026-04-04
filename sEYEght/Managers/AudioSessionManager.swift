@@ -9,6 +9,7 @@ import AVFoundation
 
 /// Centralized audio session manager. Prevents MapKit audio, LLM speech,
 /// and wake word listening from stepping on each other.
+@Observable
 final class AudioSessionManager {
     static let shared = AudioSessionManager()
 
