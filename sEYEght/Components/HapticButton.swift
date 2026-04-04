@@ -16,8 +16,6 @@ struct HapticButton: View {
     let isEnabled: Bool
     let action: () -> Void
 
-    @State private var synth = AVSpeechSynthesizer()
-
     init(_ title: String, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.title = title
         self.isEnabled = isEnabled
@@ -38,7 +36,7 @@ struct HapticButton: View {
                 guard isEnabled else { return }
                 let generator = UIImpactFeedbackGenerator(style: .heavy)
                 generator.impactOccurred()
-                synth.stopSpeaking(at: .immediate)
+                Narrator.shared.stop()
                 print("[HapticButton] Double-tap executed: \(title)")
                 action()
             }
@@ -46,11 +44,7 @@ struct HapticButton: View {
                 guard isEnabled else { return }
                 let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
-                let utterance = AVSpeechUtterance(string: title)
-                utterance.rate = 0.5
-                utterance.volume = 0.9
-                synth.stopSpeaking(at: .immediate)
-                synth.speak(utterance)
+                Narrator.shared.speak(title)
                 print("[HapticButton] Single-tap read: \(title)")
             }
     }

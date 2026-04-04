@@ -6,12 +6,10 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 /// Onboarding Step 1: Welcome screen with app logo and tagline.
 struct WelcomeStepView: View {
     let onNext: () -> Void
-    @State private var screenSynth = AVSpeechSynthesizer()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +23,7 @@ struct WelcomeStepView: View {
                     .font(.system(size: 64))
                     .foregroundColor(SeyeghtTheme.accent)
             }
-            .accessibilityLabel("Seyeght app icon")
+            .readable("Seyeght app icon")
             .padding(.bottom, 32)
 
             Text("Welcome to\nSeyeght")
@@ -33,7 +31,7 @@ struct WelcomeStepView: View {
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Welcome to Seyeght")
+                .readable("Welcome to Seyeght")
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 16)
 
@@ -41,7 +39,7 @@ struct WelcomeStepView: View {
                 .font(SeyeghtTheme.body)
                 .foregroundColor(SeyeghtTheme.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("GPS, LiDAR, AI Vision, all in one")
+                .readable("GPS, LiDAR, AI Vision, all in one")
 
             Spacer()
 
@@ -62,17 +60,17 @@ struct WelcomeStepView: View {
             Text("STEP 1 OF 3")
                 .font(SeyeghtTheme.caption)
                 .foregroundColor(SeyeghtTheme.secondaryText)
-                .accessibilityLabel("Step 1 of 3")
+                .readable("Step 1 of 3")
         }
         .padding(.horizontal, SeyeghtTheme.horizontalPadding)
         .background(SeyeghtTheme.background)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let utterance = AVSpeechUtterance(string: "Welcome to Seyeght. GPS, LiDAR, AI Vision, all in one. Tap the Next button at the bottom to continue. Step 1 of 3.")
-                utterance.rate = 0.45
-                utterance.volume = 0.9
-                screenSynth.speak(utterance)
+                Narrator.shared.speak("Welcome to Seyeght. GPS, LiDAR, AI Vision, all in one. Tap the Next button at the bottom to continue. Step 1 of 3.")
             }
+        }
+        .onDisappear {
+            Narrator.shared.stop()
         }
     }
 }

@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import AVFoundation
 
 /// S-004: Settings screen with sliders and subscription access.
 struct SettingsView: View {
@@ -16,7 +15,6 @@ struct SettingsView: View {
     @Environment(HapticsManager.self) private var hapticsManager
     @Query private var settingsArray: [UserSettings]
     @State private var navigateToSubscription = false
-    @State private var settingsSynth = AVSpeechSynthesizer()
     @State private var speechWorkItem: DispatchWorkItem?
 
     private var settings: UserSettings {
@@ -199,12 +197,8 @@ struct SettingsView: View {
     /// Debounced speech for slider changes — waits 0.6s after last change to speak
     private func speakSettingChange(_ text: String) {
         speechWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak settingsSynth] in
-            settingsSynth?.stopSpeaking(at: .immediate)
-            let utterance = AVSpeechUtterance(string: text)
-            utterance.rate = 0.5
-            utterance.volume = 0.7
-            settingsSynth?.speak(utterance)
+        let item = DispatchWorkItem {
+            Narrator.shared.speak(text, rate: 0.5, volume: 0.7)
         }
         speechWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)

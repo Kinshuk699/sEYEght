@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import AVFoundation
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
@@ -24,7 +23,6 @@ struct DashboardView: View {
     @State private var navigateToSettings = false
     @State private var navigateToSubscription = false
     @State private var isAnalyzingScene = false
-    @State private var speechSynth = AVSpeechSynthesizer()
     @State private var hasInitializedHardware = false
 
     /// Tracks the last spoken distance threshold to avoid repeating
@@ -347,12 +345,9 @@ struct DashboardView: View {
     /// Single voice output — stops current speech if priority, otherwise queues.
     private func speak(_ text: String, priority: Bool = false) {
         if priority {
-            speechSynth.stopSpeaking(at: .immediate)
+            Narrator.shared.stop()
         }
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = 0.45
-        utterance.volume = 0.85
-        speechSynth.speak(utterance)
+        Narrator.shared.speak(text, rate: 0.45, volume: 0.85)
     }
 
     /// Returns a color from green (far) → yellow → red (close) based on proximity 0…1

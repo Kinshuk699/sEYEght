@@ -6,13 +6,11 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 /// Onboarding Step 2: Instructions to mount phone on chest.
 struct MountPhoneStepView: View {
     let onNext: () -> Void
     let onBack: () -> Void
-    @State private var screenSynth = AVSpeechSynthesizer()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +18,7 @@ struct MountPhoneStepView: View {
                 Button {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
+                    Narrator.shared.stop()
                     print("[MountPhoneStepView] Back tapped")
                     onBack()
                 } label: {
@@ -27,8 +26,7 @@ struct MountPhoneStepView: View {
                         .font(.title2)
                         .foregroundColor(SeyeghtTheme.primaryText)
                 }
-                .accessibilityLabel("Go back")
-                .accessibilityHint("Returns to the previous step")
+                .readable("Go back")
                 Spacer()
             }
             .padding(.top, 16)
@@ -38,6 +36,7 @@ struct MountPhoneStepView: View {
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
+                .readable("Mount Your Phone")
                 .padding(.top, 24)
                 .padding(.bottom, 16)
 
@@ -45,7 +44,7 @@ struct MountPhoneStepView: View {
                 .font(SeyeghtTheme.body)
                 .foregroundColor(SeyeghtTheme.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Attach your iPhone to your chest using a lanyard or clip. The camera should face forward.")
+                .readable("Attach your iPhone to your chest using a lanyard or clip. The camera should face forward.")
 
             Spacer()
 
@@ -73,7 +72,7 @@ struct MountPhoneStepView: View {
                     }
                 }
             }
-            .accessibilityLabel("Illustration showing phone mounted on chest with camera facing forward")
+            .readable("Illustration showing phone mounted on chest with camera facing forward")
 
             Spacer()
 
@@ -84,7 +83,7 @@ struct MountPhoneStepView: View {
                     .font(SeyeghtTheme.caption)
                     .foregroundColor(SeyeghtTheme.secondaryText)
             }
-            .accessibilityLabel("Voice guidance is active")
+            .readable("Voice guidance is active")
             .padding(.bottom, 16)
 
             HapticButton("Next") {
@@ -96,11 +95,11 @@ struct MountPhoneStepView: View {
         .background(SeyeghtTheme.background)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let utterance = AVSpeechUtterance(string: "Step 2. Mount your phone. Attach your iPhone to your chest using a lanyard or clip, with the camera facing forward. Tap Next at the bottom to continue.")
-                utterance.rate = 0.45
-                utterance.volume = 0.9
-                screenSynth.speak(utterance)
+                Narrator.shared.speak("Step 2. Mount your phone. Attach your iPhone to your chest using a lanyard or clip, with the camera facing forward. Tap Next at the bottom to continue.")
             }
+        }
+        .onDisappear {
+            Narrator.shared.stop()
         }
     }
 }

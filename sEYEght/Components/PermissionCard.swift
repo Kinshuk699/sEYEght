@@ -17,8 +17,6 @@ struct PermissionCard: View {
     let isGranted: Bool
     let onGrant: () -> Void
 
-    @State private var synth = AVSpeechSynthesizer()
-
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: iconName)
@@ -54,18 +52,14 @@ struct PermissionCard: View {
                     .onTapGesture(count: 2) {
                         let generator = UIImpactFeedbackGenerator(style: .heavy)
                         generator.impactOccurred()
-                        synth.stopSpeaking(at: .immediate)
+                        Narrator.shared.stop()
                         print("[PermissionCard] Grant confirmed: \(title)")
                         onGrant()
                     }
                     .onTapGesture(count: 1) {
                         let generator = UIImpactFeedbackGenerator(style: .light)
                         generator.impactOccurred()
-                        let utterance = AVSpeechUtterance(string: "Grant \(title)")
-                        utterance.rate = 0.5
-                        utterance.volume = 0.9
-                        synth.stopSpeaking(at: .immediate)
-                        synth.speak(utterance)
+                        Narrator.shared.speak("Grant \(title)")
                     }
                     .accessibilityLabel("Grant \(title)")
                     .accessibilityHint("Double tap to grant \(title.lowercased()) permission")
@@ -74,6 +68,7 @@ struct PermissionCard: View {
         .padding(20)
         .background(SeyeghtTheme.cardBackground)
         .cornerRadius(SeyeghtTheme.cardCornerRadius)
+        .readable("\(title). \(description). \(isGranted ? "Granted" : "Not yet granted, double tap Grant to allow")")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(description). \(isGranted ? "Granted" : "Not yet granted")")
     }

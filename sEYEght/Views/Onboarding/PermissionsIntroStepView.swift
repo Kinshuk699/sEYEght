@@ -6,13 +6,11 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 /// Onboarding Step 3: Preview of permissions to be requested.
 struct PermissionsIntroStepView: View {
     let onContinue: () -> Void
     let onBack: () -> Void
-    @State private var screenSynth = AVSpeechSynthesizer()
 
     private let permissionItems: [(icon: String, label: String)] = [
         ("camera.fill", "Camera for object recognition"),
@@ -26,6 +24,7 @@ struct PermissionsIntroStepView: View {
                 Button {
                     let generator = UIImpactFeedbackGenerator(style: .medium)
                     generator.impactOccurred()
+                    Narrator.shared.stop()
                     print("[PermissionsIntroStepView] Back tapped")
                     onBack()
                 } label: {
@@ -33,8 +32,7 @@ struct PermissionsIntroStepView: View {
                         .font(.title2)
                         .foregroundColor(SeyeghtTheme.primaryText)
                 }
-                .accessibilityLabel("Go back")
-                .accessibilityHint("Returns to the previous step")
+                .readable("Go back")
                 Spacer()
             }
             .padding(.top, 16)
@@ -44,6 +42,7 @@ struct PermissionsIntroStepView: View {
                 .foregroundColor(SeyeghtTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
+                .readable("Let's Get Started")
                 .padding(.top, 24)
                 .padding(.bottom, 16)
 
@@ -51,6 +50,7 @@ struct PermissionsIntroStepView: View {
                 .font(SeyeghtTheme.body)
                 .foregroundColor(SeyeghtTheme.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .readable("We'll ask for a few permissions next. Camera, Location, and Microphone.")
                 .padding(.bottom, 32)
 
             HStack(spacing: 16) {
@@ -63,7 +63,7 @@ struct PermissionsIntroStepView: View {
                             .font(.system(size: 28))
                             .foregroundColor(SeyeghtTheme.accent)
                     }
-                    .accessibilityHidden(true)
+                    .readable(item.label)
                 }
             }
             .padding(.bottom, 32)
@@ -78,9 +78,9 @@ struct PermissionsIntroStepView: View {
                         Text(item.label)
                             .font(SeyeghtTheme.body)
                             .foregroundColor(SeyeghtTheme.primaryText)
-                            .accessibilityLabel(item.label)
                         Spacer()
                     }
+                    .readable(item.label)
                 }
             }
 
@@ -95,11 +95,11 @@ struct PermissionsIntroStepView: View {
         .background(SeyeghtTheme.background)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let utterance = AVSpeechUtterance(string: "Step 3. Let's get started. We'll ask for Camera, Location, Microphone, and Speech Recognition permissions next. Tap Continue at the bottom.")
-                utterance.rate = 0.45
-                utterance.volume = 0.9
-                screenSynth.speak(utterance)
+                Narrator.shared.speak("Step 3. Let's get started. We'll ask for Camera, Location, Microphone, and Speech Recognition permissions next. Tap Continue at the bottom.")
             }
+        }
+        .onDisappear {
+            Narrator.shared.stop()
         }
     }
 }
