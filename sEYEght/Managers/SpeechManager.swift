@@ -12,7 +12,7 @@ import UIKit
 #endif
 
 /// F-003: Continuous Voice Recognition Engine.
-/// Listens for the fixed wake phrase "Hey Seyeght" while app is active.
+/// Listens for the fixed wake phrase "Hey Sight" while app is active.
 @Observable
 final class SpeechManager {
     var isListening = false
@@ -21,7 +21,7 @@ final class SpeechManager {
     /// Fired when the wake phrase is detected
     var onWakeWordDetected: (() -> Void)?
 
-    /// Fired when "where am I" is detected after the wake phrase
+    /// Fired when "where am I" is detected (works standalone, no wake phrase needed)
     var onWhereAmIDetected: (() -> Void)?
 
     private let speechRecognizer = SFSpeechRecognizer()  // Uses device locale for better accent support
@@ -29,7 +29,8 @@ final class SpeechManager {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
-    private let wakePhrase = "hey seyeght"
+    // Multiple phrasings that speech recognizer might produce
+    private let wakePhrases = ["hey sight", "hey site", "hey sigh", "a sight", "hey say"]
     private var isStopped = false  // true = user explicitly called stopListening()
 
     func startListening() {
@@ -90,7 +91,7 @@ final class SpeechManager {
         let wasListening = isListening
         isListening = true
         if !wasListening {
-            print("[SpeechManager] ✅ Listening for wake phrase: '\(wakePhrase)'")
+            print("[SpeechManager] ✅ Listening for wake phrase: 'Hey Sight' and 'Where am I'")
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -100,7 +101,17 @@ final class SpeechManager {
                 let text = result.bestTranscription.formattedString.lowercased()
                 self.lastRecognizedText = text
 
-                if text.contains(self.wakePhrase) {
+                // "Where am I" works standalone — no wake phrase needed
+                if text.contains("where am i") {
+                    print("[SpeechManager] 📍 'Where am I' command detected")
+                    self.onWhereAmIDetected?()
+                    self.restartRecognitionOnly()
+                    return
+                }
+
+                // Check for any of the wake phrase variants
+                let detected = self.wakePhrases.contains { text.contains($0) }
+                if detected {
                     print("[SpeechManager] 🎤 Wake word detected! Text: '\(text)'")
 
                     #if canImport(UIKit)
@@ -108,14 +119,7 @@ final class SpeechManager {
                     generator.notificationOccurred(.success)
                     #endif
 
-                    // Check for "where am I" command
-                    if text.contains("where am i") || text.contains("where am I") {
-                        print("[SpeechManager] 📍 'Where am I' command detected")
-                        self.onWhereAmIDetected?()
-                    } else {
-                        self.onWakeWordDetected?()
-                    }
-                    // Restart recognition task (not the whole engine)
+                    self.onWakeWordDetected?()
                     self.restartRecognitionOnly()
                 }
             }

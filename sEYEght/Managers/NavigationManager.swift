@@ -19,7 +19,8 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
     var currentRoute: MKRoute?
 
     private let locationManager = CLLocationManager()
-    private let synthesizer = AVSpeechSynthesizer()
+    /// Callback so Dashboard can speak through its single synthesizer
+    var onSpeechRequest: ((String) -> Void)?
     private var currentStepIndex = 0
 
     override init() {
@@ -128,13 +129,11 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
         guard !text.isEmpty else { return }
 
         AudioSessionManager.shared.beginSpeaking()
-
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = 0.5
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        synthesizer.speak(utterance)
-
         print("[NavigationManager] 🔊 Speaking: \(text)")
+
+        if let onSpeechRequest = onSpeechRequest {
+            onSpeechRequest(text)
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(text.count) * 0.06) {
             AudioSessionManager.shared.endSpeaking()

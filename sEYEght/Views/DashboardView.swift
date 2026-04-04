@@ -28,6 +28,8 @@ struct DashboardView: View {
     @State private var lastSpokenThreshold: Float = Float.greatestFiniteMagnitude
     /// Cooldown so we don't speak distance more than once every 3 seconds
     @State private var lastDistanceSpeechTime: Date = .distantPast
+    /// Suppress other speech during emergency mode
+    @State private var isEmergencyActive = false
 
     var body: some View {
         ZStack {
@@ -47,14 +49,17 @@ struct DashboardView: View {
             // Shows a pulsing colored circle where the closest obstacle is detected
             if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
                 GeometryReader { geo in
-                    let xPos = CGFloat(lidarManager.closestNormalizedX) * geo.size.width
-                    let yPos = geo.size.height * 0.35  // Upper portion of screen
+                    let padding: CGFloat = 50
+                    let rawX = CGFloat(lidarManager.closestNormalizedX) * geo.size.width
+                    let xPos = min(max(rawX, padding), geo.size.width - padding)
+                    let yPos = geo.size.height * 0.35
                     let proximity = max(0, min(1, 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
+                    let bubbleSize = 40 + proximity * 40
 
                     // Obstacle marker — red when close, yellow when medium, green when far
                     Circle()
                         .fill(obstacleColor(proximity: proximity))
-                        .frame(width: 40 + proximity * 40, height: 40 + proximity * 40)
+                        .frame(width: bubbleSize, height: bubbleSize)
                         .opacity(0.7 + proximity * 0.3)
                         .shadow(color: obstacleColor(proximity: proximity), radius: 10 + proximity * 20)
                         .position(x: xPos, y: yPos)
@@ -68,7 +73,7 @@ struct DashboardView: View {
                         .padding(.vertical, 4)
                         .background(obstacleColor(proximity: proximity).opacity(0.8))
                         .cornerRadius(8)
-                        .position(x: xPos, y: yPos + 40 + proximity * 20 + 16)
+                        .position(x: xPos, y: yPos + bubbleSize / 2 + 16)
                         .accessibilityHidden(true)
                 }
             }
@@ -87,6 +92,26 @@ struct DashboardView: View {
                             .foregroundColor(SeyeghtTheme.accent)
                     }
                     .accessibilityLabel(lidarManager.isRunning ? "Seyeght is active" : "Seyeght is starting")
+                    Spacer()
+
+                    // Listening indicator
+                    if speechManager.isListening {
+                        HStack(spacing: 4) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
+                                .symbolEffect(.pulse)
+                            Text("Listening")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.green)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(10)
+                        .accessibilityLabel("Voice commands active")
+                    }
+
                     Spacer()
 
                     // Distance readout (top-right)
@@ -128,7 +153,7 @@ struct DashboardView: View {
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "Tap anywhere to describe scene")
+                    Text(isAnalyzingScene ? "Describing scene…" : "Tap anywhere or say 'Hey Sight'")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -136,7 +161,7 @@ struct DashboardView: View {
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
                 }
-                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Seyeght to describe scene")
+                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Sight to describe scene")
 
                 Spacer()
 
@@ -179,12 +204,13 @@ struct DashboardView: View {
                 speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
                 speechManager.startListening()
 
+                // Wire all managers' speech through Dashboard's single synthesizer
+                visionManager.onSpeechRequest = { text in speak(text) }
+                navigationManager.onSpeechRequest = { text in speak(text) }
+
                 // Spoken welcome so blind users know the app is working
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    let utterance = AVSpeechUtterance(string: "Seyeght ready. LiDAR scanning. Tap anywhere or say Hey Seyeght to describe your scene.")
-                    utterance.rate = 0.45
-                    utterance.volume = 0.8
-                    speechSynth.speak(utterance)
+                    speak("Seyeght ready. LiDAR scanning. Tap anywhere or say Hey Sight to describe your scene. You can also say Where am I.")
                 }
             }
         }
@@ -208,6 +234,7 @@ struct DashboardView: View {
 
     private func handleSceneTap() {
         guard !isAnalyzingScene else { return }
+        guard !isEmergencyActive else { return }
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
@@ -240,6 +267,7 @@ struct DashboardView: View {
 
     /// Speak distance when crossing key thresholds: 1.0m, 0.5m, 0.3m
     private func speakDistanceIfNeeded(_ distance: Float) {
+        guard !isEmergencyActive else { return }
         guard distance < 1.2 else {
             // Cleared — reset so we can announce again when approaching
             if lastSpokenThreshold < Float.greatestFiniteMagnitude {
@@ -281,6 +309,8 @@ struct DashboardView: View {
 
     /// Triple-tap emergency: speak location loudly + offer to call emergency services
     private func handleEmergencyTripleTap() {
+        isEmergencyActive = true
+
         // Strong haptic burst
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
@@ -291,6 +321,11 @@ struct DashboardView: View {
         // Speak current location after the emergency message
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             navigationManager.speakCurrentLocation()
+        }
+
+        // Clear emergency flag after 8 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+            isEmergencyActive = false
         }
 
         print("[DashboardView] 🚨 Emergency triple-tap activated")

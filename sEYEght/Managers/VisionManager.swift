@@ -18,7 +18,9 @@ final class VisionManager {
     var isProcessing = false
     var lastDescription = ""
 
-    private let synthesizer = AVSpeechSynthesizer()
+    /// Callback so Dashboard can speak through its single synthesizer
+    var onSpeechRequest: ((String) -> Void)?
+
     private var apiKey: String {
         Bundle.main.infoDictionary?["OPENAI_API_KEY"] as? String ?? ""
     }
@@ -140,14 +142,10 @@ final class VisionManager {
 
     private func speakText(_ text: String) {
         AudioSessionManager.shared.beginSpeaking()
-
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = speechRate
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        synthesizer.speak(utterance)
-
-        print("[VisionManager] 🔊 Speaking: \(text)")
-
+        print("[VisionManager] Speaking: \(text)")
+        if let onSpeechRequest = onSpeechRequest {
+            onSpeechRequest(text)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(text.count) * 0.06) {
             AudioSessionManager.shared.endSpeaking()
         }
