@@ -33,6 +33,9 @@ final class SpeechManager {
     private var isStopped = false  // true = user explicitly called stopListening()
 
     func startListening() {
+        // Guard: don't restart if already listening
+        guard !isListening else { return }
+
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             print("[SpeechManager] ❌ Speech recognizer not available")
             return
@@ -84,8 +87,11 @@ final class SpeechManager {
         }
         recognitionRequest = request
 
+        let wasListening = isListening
         isListening = true
-        print("[SpeechManager] ✅ Listening for wake phrase: '\(wakePhrase)'")
+        if !wasListening {
+            print("[SpeechManager] ✅ Listening for wake phrase: '\(wakePhrase)'")
+        }
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }

@@ -24,6 +24,9 @@ final class LiDARManager: NSObject, ARSessionDelegate {
     private let processingQueue = DispatchQueue(label: "com.seyeght.lidar", qos: .userInteractive)
 
     func start() {
+        // Guard: don't create duplicate sessions
+        guard !isRunning else { return }
+
         guard ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) else {
             print("[LiDARManager] ❌ Device does not support LiDAR sceneDepth")
             return
@@ -31,6 +34,9 @@ final class LiDARManager: NSObject, ARSessionDelegate {
 
         let config = ARWorldTrackingConfiguration()
         config.frameSemantics = .sceneDepth
+
+        // Pause any existing session before creating a new one
+        arSession?.pause()
 
         let session = ARSession()
         session.delegate = self
@@ -42,6 +48,7 @@ final class LiDARManager: NSObject, ARSessionDelegate {
 
     func stop() {
         arSession?.pause()
+        arSession = nil
         isRunning = false
         closestDistance = Float.greatestFiniteMagnitude
         print("[LiDARManager] Session stopped")

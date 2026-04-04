@@ -22,6 +22,7 @@ struct DashboardView: View {
     @State private var navigateToSubscription = false
     @State private var isAnalyzingScene = false
     @State private var speechSynth = AVSpeechSynthesizer()
+    @State private var hasInitializedHardware = false
 
     /// Tracks the last spoken distance threshold to avoid repeating
     @State private var lastSpokenThreshold: Float = Float.greatestFiniteMagnitude
@@ -30,22 +31,71 @@ struct DashboardView: View {
 
     var body: some View {
         ZStack {
-            SeyeghtTheme.background.ignoresSafeArea()
+            // Layer 1: Live camera feed from ARKit
+            if lidarManager.isRunning {
+                ARCameraView(session: lidarManager.session)
+                    .ignoresSafeArea()
 
+                // Semi-transparent overlay so UI elements are readable
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+            } else {
+                SeyeghtTheme.background.ignoresSafeArea()
+            }
+
+            // Layer 2: LiDAR obstacle indicator
+            // Shows a pulsing colored circle where the closest obstacle is detected
+            if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
+                GeometryReader { geo in
+                    let xPos = CGFloat(lidarManager.closestNormalizedX) * geo.size.width
+                    let yPos = geo.size.height * 0.35  // Upper portion of screen
+                    let proximity = max(0, min(1, 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
+
+                    // Obstacle marker — red when close, yellow when medium, green when far
+                    Circle()
+                        .fill(obstacleColor(proximity: proximity))
+                        .frame(width: 40 + proximity * 40, height: 40 + proximity * 40)
+                        .opacity(0.7 + proximity * 0.3)
+                        .shadow(color: obstacleColor(proximity: proximity), radius: 10 + proximity * 20)
+                        .position(x: xPos, y: yPos)
+                        .accessibilityHidden(true)
+
+                    // Distance label near the indicator
+                    Text(String(format: "%.1fm", lidarManager.closestDistance))
+                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(obstacleColor(proximity: proximity).opacity(0.8))
+                        .cornerRadius(8)
+                        .position(x: xPos, y: yPos + 40 + proximity * 20 + 16)
+                        .accessibilityHidden(true)
+                }
+            }
+
+            // Layer 3: UI controls
             VStack(spacing: 0) {
                 // Status bar
                 HStack {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(SeyeghtTheme.accent)
+                            .fill(lidarManager.isRunning ? SeyeghtTheme.accent : Color.red)
                             .frame(width: 8, height: 8)
                             .accessibilityHidden(true)
-                        Text("Seyeght Active")
+                        Text(lidarManager.isRunning ? "Seyeght Active" : "Starting…")
                             .font(SeyeghtTheme.caption)
                             .foregroundColor(SeyeghtTheme.accent)
                     }
-                    .accessibilityLabel("Seyeght is active")
+                    .accessibilityLabel(lidarManager.isRunning ? "Seyeght is active" : "Seyeght is starting")
                     Spacer()
+
+                    // Distance readout (top-right)
+                    if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
+                        Text(String(format: "%.1fm", lidarManager.closestDistance))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(obstacleColor(proximity: 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
+                            .accessibilityLabel(String(format: "Closest obstacle %.1f meters", lidarManager.closestDistance))
+                    }
                 }
                 .padding(.top, 16)
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
@@ -72,15 +122,19 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Center mic icon + hint
+                // Center action hint
                 VStack(spacing: 12) {
-                    Image(systemName: isAnalyzingScene ? "eye.fill" : "mic.fill")
+                    Image(systemName: isAnalyzingScene ? "eye.fill" : "hand.tap.fill")
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
                     Text(isAnalyzingScene ? "Describing scene…" : "Tap anywhere to describe scene")
                         .font(SeyeghtTheme.caption)
-                        .foregroundColor(SeyeghtTheme.secondaryText)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(12)
                 }
                 .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Seyeght to describe scene")
 
@@ -96,6 +150,9 @@ struct DashboardView: View {
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 24))
                             .foregroundColor(SeyeghtTheme.accent)
+                            .padding(10)
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(Circle())
                     }
                     .accessibilityLabel("Settings")
                     .accessibilityHint("Double tap to open settings")
@@ -156,9 +213,7 @@ struct DashboardView: View {
 
         guard subscriptionManager.canUseAIVision else {
             // Free uses exhausted and not subscribed
-            let utterance = AVSpeechUtterance(string: "You've used all 3 free descriptions today. Subscribe to AI Vision for unlimited access.")
-            utterance.rate = 0.45
-            speechSynth.speak(utterance)
+            speak("You've used all 3 free descriptions today. Subscribe to AI Vision for unlimited access.")
             navigateToSubscription = true
             print("[DashboardView] Free uses exhausted — navigating to paywall")
             return
@@ -171,9 +226,7 @@ struct DashboardView: View {
             let countMsg = remaining > 0 ? "\(remaining) free descriptions remaining today." : "That was your last free description today."
             // Speak remaining count after the scene description
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                let countUtterance = AVSpeechUtterance(string: countMsg)
-                countUtterance.rate = 0.45
-                speechSynth.speak(countUtterance)
+                speak(countMsg)
             }
         }
 
@@ -222,11 +275,8 @@ struct DashboardView: View {
         default: return
         }
 
-        // Speak with high priority (interrupt current speech if any non-critical)
-        let utterance = AVSpeechUtterance(string: distanceText)
-        utterance.rate = 0.55
-        utterance.volume = 0.9
-        speechSynth.speak(utterance)
+        // Speak with high priority — stops any current speech first
+        speak(distanceText, priority: true)
     }
 
     /// Triple-tap emergency: speak location loudly + offer to call emergency services
@@ -235,18 +285,39 @@ struct DashboardView: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
 
-        // Stop current speech and announce emergency mode
-        speechSynth.stopSpeaking(at: .immediate)
-        let emergencyMsg = AVSpeechUtterance(string: "Emergency mode activated. Your location is being announced. Triple tap again to call emergency services.")
-        emergencyMsg.rate = 0.45
-        emergencyMsg.volume = 1.0
-        speechSynth.speak(emergencyMsg)
+        // Stop ALL current speech and announce emergency mode
+        speak("Emergency mode activated. Your location is being announced.", priority: true)
 
         // Speak current location after the emergency message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             navigationManager.speakCurrentLocation()
         }
 
         print("[DashboardView] 🚨 Emergency triple-tap activated")
+    }
+
+    // MARK: - Centralized Speech
+
+    /// Single voice output — stops current speech if priority, otherwise queues.
+    private func speak(_ text: String, priority: Bool = false) {
+        if priority {
+            speechSynth.stopSpeaking(at: .immediate)
+        }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = 0.45
+        utterance.volume = 0.85
+        speechSynth.speak(utterance)
+    }
+
+    /// Returns a color from green (far) → yellow → red (close) based on proximity 0…1
+    private func obstacleColor(proximity: Double) -> Color {
+        let clamped = max(0, min(1, proximity))
+        if clamped < 0.5 {
+            // Green → Yellow
+            return Color(red: clamped * 2, green: 1.0, blue: 0)
+        } else {
+            // Yellow → Red
+            return Color(red: 1.0, green: 1.0 - (clamped - 0.5) * 2, blue: 0)
+        }
     }
 }

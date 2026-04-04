@@ -398,6 +398,11 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght listens for your voice commands to control navigation hands-free.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to detect your wake word and respond to commands.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -408,11 +413,6 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght listens for your voice commands to control navigation hands-free.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to detect your wake word and respond to commands.";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -448,6 +448,11 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght listens for your voice commands to control navigation hands-free.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to detect your wake word and respond to commands.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -458,11 +463,6 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght listens for your voice commands to control navigation hands-free.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to detect your wake word and respond to commands.";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";

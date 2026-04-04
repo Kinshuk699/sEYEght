@@ -117,11 +117,15 @@ final class HapticsManager {
         }
     }
 
+    /// Throttle: max 5 haptic events per second
+    private var lastHapticTime: Date = .distantPast
+    private let hapticInterval: TimeInterval = 0.2  // 5 per second
+
     /// Update haptic feedback AND audio tone based on obstacle distance.
     func updateForDistance(_ distance: Float) {
         let withinRange = distance < Float(maxRange)
 
-        // Audio tone: map distance to frequency and beep rate
+        // Audio tone: map distance to frequency and beep rate (this is cheap, no throttle needed)
         if withinRange {
             let normalized = max(0, min(1, Double(distance) / maxRange))
             // Frequency: 300 Hz (far) → 1200 Hz (very close)
@@ -133,7 +137,10 @@ final class HapticsManager {
             toneFrequency = 0 // Silent
         }
 
-        // Haptics
+        // Haptics — throttled to avoid rate-limit warnings
+        let now = Date()
+        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
+        lastHapticTime = now
         guard let engine = engine, withinRange else { return }
 
         let normalizedDistance = max(0, min(1, Double(distance) / maxRange))

@@ -23,7 +23,17 @@ final class SubscriptionManager {
 
     init() {
         loadFreeUses()
+        print("[SubscriptionManager] Free uses remaining today: \(freeUsesRemaining)")
     }
+
+    #if DEBUG
+    /// Reset free uses for testing — call from console or debug menu
+    func resetFreeUsesForTesting() {
+        freeUsesRemaining = maxFreePerDay
+        saveFreeUses()
+        print("[SubscriptionManager] 🔧 DEBUG: Reset free uses to \(maxFreePerDay)")
+    }
+    #endif
 
     /// Whether the user can use AI Vision (subscribed OR has free uses left)
     var canUseAIVision: Bool {
