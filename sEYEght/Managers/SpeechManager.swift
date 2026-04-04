@@ -44,6 +44,12 @@ final class SpeechManager {
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
+        // Guard against simulator / broken audio hardware reporting 0 Hz
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            print("[SpeechManager] ❌ Audio input format invalid (sampleRate=\(recordingFormat.sampleRate), channels=\(recordingFormat.channelCount)) — likely running in Simulator")
+            return
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
         }

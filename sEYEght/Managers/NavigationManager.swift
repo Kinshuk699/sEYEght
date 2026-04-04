@@ -26,8 +26,8 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.pausesLocationUpdatesAutomatically = false
+        // NOTE: allowsBackgroundLocationUpdates requires UIBackgroundModes with "location"
+        // in Info.plist — set only when navigation starts, not at init time.
         print("[NavigationManager] Initialized")
     }
 
@@ -64,6 +64,12 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
             currentRoute = route
             currentStepIndex = 0
             isNavigating = true
+            // Enable background tracking only if UIBackgroundModes contains "location"
+            let bgModes = Bundle.main.infoDictionary?["UIBackgroundModes"] as? [String] ?? []
+            if bgModes.contains("location") {
+                locationManager.allowsBackgroundLocationUpdates = true
+                locationManager.pausesLocationUpdatesAutomatically = false
+            }
             locationManager.startUpdatingLocation()
 
             if let firstStep = route.steps.first {
