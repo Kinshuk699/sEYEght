@@ -79,11 +79,13 @@ final class VisionManager {
         let base64Image = imageData.base64EncodedString()
 
         guard !apiKey.isEmpty && apiKey != "sk-your-key-here" else {
-            print("[VisionManager] ❌ No valid API key configured")
+            print("[VisionManager] ❌ No valid API key configured. Key length: \(apiKey.count), prefix: \(String(apiKey.prefix(10)))")
             isProcessing = false
-            speakText("API key not configured. Please add your OpenAI key in settings.")
+            speakText("I'm having trouble with my vision system. Please try again.")
             return
         }
+
+        print("[VisionManager] 🔑 API key present (\(apiKey.count) chars, starts with \(String(apiKey.prefix(10)))...)")
 
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -128,6 +130,13 @@ final class VisionManager {
                       let choices = json["choices"] as? [[String: Any]],
                       let message = choices.first?["message"] as? [String: Any],
                       let content = message["content"] as? String else {
+                    // Log the raw response for debugging
+                    if let data = data, let raw = String(data: data, encoding: .utf8) {
+                        print("[VisionManager] ❌ Raw API response: \(raw.prefix(500))")
+                    }
+                    if let httpResponse = response as? HTTPURLResponse {
+                        print("[VisionManager] ❌ HTTP status: \(httpResponse.statusCode)")
+                    }
                     print("[VisionManager] ❌ Failed to parse API response")
                     self?.speakText("Sorry, I couldn't understand the response.")
                     return

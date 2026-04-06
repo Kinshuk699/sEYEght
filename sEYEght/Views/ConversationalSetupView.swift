@@ -97,7 +97,7 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         // Don't continue if mandatory permissions are missing
-        guard permissionsManager.cameraStatus && permissionsManager.locationStatus else {
+        guard permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus else {
             statusText = "Waiting for permissions..."
             return
         }
@@ -168,10 +168,12 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         // If mandatory permissions still denied, guide to Settings and wait
-        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
+        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
             let missing = [
                 !permissionsManager.cameraStatus ? "Camera" : nil,
                 !permissionsManager.locationStatus ? "Location" : nil,
+                !permissionsManager.microphoneStatus ? "Microphone" : nil,
+                !permissionsManager.speechStatus ? "Speech Recognition" : nil,
             ].compactMap { $0 }.joined(separator: " and ")
 
             await Narrator.shared.speakAndWait(
@@ -186,14 +188,13 @@ struct ConversationalSetupView: View {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
-                if permissionsManager.cameraStatus && permissionsManager.locationStatus {
+                if permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus {
                     await Narrator.shared.speakAndWait("Thank you. Camera and location are ready. Let's continue.")
                     break
                 }
             }
 
-            // If still not granted after waiting, stop here
-            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
+            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
                 await Narrator.shared.speakAndWait(
                     "I still can't access what I need. The app will try again next time you open it."
                 )
@@ -201,31 +202,31 @@ struct ConversationalSetupView: View {
             }
         }
 
-        // Microphone (optional)
+        // Microphone (mandatory — required for voice commands)
         await handlePermission(
             name: "Microphone",
             alreadyGranted: permissionsManager.microphoneStatus,
             notDetermined: permissionsManager.microphoneNotDetermined,
-            firstTimePrompt: "I'd also like access to your microphone, so you can use voice commands. This is optional. You'll hear a prompt now.",
-            alreadyDeniedPrompt: nil, // Optional — skip if denied
+            firstTimePrompt: "I need access to your microphone so you can talk to me. You'll be able to say things like 'Hey Sight' or 'What is near me' to control the app with your voice. You'll hear a prompt now — please tap Allow.",
+            alreadyDeniedPrompt: "I need microphone access for voice commands, but it was previously denied. I'll open your Settings now — please turn on Microphone for Seyeght, then come back.",
             request: { permissionsManager.requestMicrophone() },
             check: { permissionsManager.microphoneStatus },
             grantedMessage: "Microphone ready. You'll be able to talk to me.",
-            deniedMessage: "No problem. Voice commands won't be available, but everything else works fine."
+            deniedMessage: "I wasn't able to get microphone access. Voice commands won't work without it."
         )
         guard !Task.isCancelled else { return }
 
-        // Speech Recognition (optional)
+        // Speech Recognition (mandatory — required to understand voice)
         await handlePermission(
             name: "Speech Recognition",
             alreadyGranted: permissionsManager.speechStatus,
             notDetermined: permissionsManager.speechNotDetermined,
-            firstTimePrompt: "Last one — speech recognition. This helps me understand what you say. Again, optional.",
-            alreadyDeniedPrompt: nil, // Optional — skip if denied
+            firstTimePrompt: "Last one — speech recognition. This lets me understand what you say. You'll hear a prompt now.",
+            alreadyDeniedPrompt: "I need speech recognition access, but it was previously denied. I'll open your Settings now — please turn on Speech Recognition for Seyeght, then come back.",
             request: { permissionsManager.requestSpeechRecognition() },
             check: { permissionsManager.speechStatus },
-            grantedMessage: "All set.",
-            deniedMessage: "That's okay. I'll skip voice commands."
+            grantedMessage: "All set. I can now understand your voice commands.",
+            deniedMessage: "I wasn't able to get speech recognition access. Voice commands won't work without it."
         )
     }
 
@@ -392,7 +393,7 @@ struct ConversationalSetupView: View {
         await demoHaptics()
         guard !Task.isCancelled else { return }
 
-        // 4c — Voice command practice
+        // 4c — Voice command practice (now mandatory — mic + speech should be granted)
         if permissionsManager.microphoneStatus && permissionsManager.speechStatus {
             await demoVoiceCommands()
             guard !Task.isCancelled else { return }
@@ -517,7 +518,7 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         await Narrator.shared.speakAndWait(
-            "You can also say 'Where am I' anytime to hear your current street address. And if you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly."
+            "You can also say 'Where am I' anytime to hear your current street address. Or try natural commands like 'What is near me' or 'Describe what is in front of me'. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly."
         )
     }
 

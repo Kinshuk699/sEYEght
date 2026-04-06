@@ -29,8 +29,20 @@ final class SpeechManager {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
-    // Multiple phrasings that speech recognizer might produce
-    private let wakePhrases = ["hey sight", "hey site", "hey sigh", "a sight", "hey say"]
+    // Multiple phrasings that speech recognizer might produce for wake word
+    private let wakePhrases = [
+        "hey sight", "hey site", "hey sigh", "a sight", "hey say",
+        "hey seyeght", "hey say it", "hey side", "hey light"
+    ]
+
+    // Natural commands that also trigger scene description
+    private let describeCommands = [
+        "what is near me", "what's near me", "what is in front", "what's in front",
+        "describe", "what do you see", "what can you see", "what is around me",
+        "what's around me", "tell me what you see", "what is ahead", "what's ahead",
+        "look around", "scan", "help me see", "what is there"
+    ]
+
     private var isStopped = false  // true = user explicitly called stopListening()
 
     func startListening() {
@@ -109,10 +121,11 @@ final class SpeechManager {
                     return
                 }
 
-                // Check for any of the wake phrase variants
-                let detected = self.wakePhrases.contains { text.contains($0) }
-                if detected {
-                    print("[SpeechManager] 🎤 Wake word detected! Text: '\(text)'")
+                // Check for wake phrase OR natural describe commands
+                let wakeDetected = self.wakePhrases.contains { text.contains($0) }
+                let describeDetected = self.describeCommands.contains { text.contains($0) }
+                if wakeDetected || describeDetected {
+                    print("[SpeechManager] 🎤 Command detected! Text: '\(text)' (wake=\(wakeDetected), describe=\(describeDetected))")
 
                     #if canImport(UIKit)
                     let generator = UINotificationFeedbackGenerator()
@@ -160,8 +173,8 @@ final class SpeechManager {
 
         guard !isStopped else { return }
 
-        // Longer delay to reduce churn — 2 seconds between recognition cycles
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        // Short delay between recognition cycles — keep responsive
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self = self, !self.isStopped else { return }
             guard let speechRecognizer = self.speechRecognizer, speechRecognizer.isAvailable else { return }
             self.startRecognitionTask(with: speechRecognizer)

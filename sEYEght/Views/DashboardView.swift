@@ -29,6 +29,8 @@ struct DashboardView: View {
     @State private var lastSpokenThreshold: Float = Float.greatestFiniteMagnitude
     /// Cooldown so we don't speak distance more than once every 3 seconds
     @State private var lastDistanceSpeechTime: Date = .distantPast
+    /// Timer for repeating close-proximity warnings
+    @State private var proximityRepeatTimer: Timer?
     /// Suppress other speech during emergency mode
     @State private var isEmergencyActive = false
 
@@ -161,6 +163,19 @@ struct DashboardView: View {
                         .padding(.vertical, 6)
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
+
+                    // Live transcription so user can see what voice recognizer hears
+                    if speechManager.isListening && !speechManager.lastRecognizedText.isEmpty {
+                        Text(speechManager.lastRecognizedText)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(SeyeghtTheme.secondaryText)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(8)
+                            .animation(.easeInOut(duration: 0.2), value: speechManager.lastRecognizedText)
+                    }
                 }
                 .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Sight to describe scene")
 
@@ -209,7 +224,13 @@ struct DashboardView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 hapticsManager.ensureEngine()
                 lidarManager.start()
-                speechManager.onWakeWordDetected = { handleSceneTap() }
+                speechManager.onWakeWordDetected = {
+                    // Spoken confirmation that voice was heard, then describe scene
+                    speak("Heard you.", priority: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        handleSceneTap()
+                    }
+                }
                 speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
                 speechManager.startListening()
 
@@ -219,7 +240,7 @@ struct DashboardView: View {
 
                 // Spoken welcome so blind users know the app is working
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    speak("Seyeght ready. LiDAR scanning. Tap anywhere or say Hey Sight to describe your scene. You can also say Where am I.")
+                    speak("Seyeght ready. LiDAR scanning. Tap anywhere, say Hey Sight, or just say what is near me. You can also say Where am I.")
                 }
             }
         }
@@ -247,6 +268,11 @@ struct DashboardView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
+        #if DEBUG
+        // Reset free uses for testing
+        subscriptionManager.resetFreeUsesForTesting()
+        #endif
+
         guard subscriptionManager.canUseAIVision else {
             // Free uses exhausted and not subscribed
             speak("You've used all 3 free descriptions today. Subscribe to AI Vision for unlimited access.")
@@ -261,20 +287,28 @@ struct DashboardView: View {
             let remaining = subscriptionManager.freeUsesRemaining
             let countMsg = remaining > 0 ? "\(remaining) free descriptions remaining today." : "That was your last free description today."
             // Speak remaining count after the scene description
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
                 speak(countMsg)
             }
         }
 
         isAnalyzingScene = true
+        speak("Looking...")
         print("[DashboardView] Capturing scene for AI analysis")
+
+        visionManager.captureAndAnalyze(from: lidarManager.session)
+
+        // Wait for VisionManager to finish processing, then clear the flag
         Task {
-            await visionManager.captureAndAnalyze(from: lidarManager.session)
+            for _ in 0..<60 { // up to 30 seconds
+                try? await Task.sleep(for: .milliseconds(500))
+                if !visionManager.isProcessing { break }
+            }
             isAnalyzingScene = false
         }
     }
 
-    /// Speak distance when crossing key thresholds: 1.0m, 0.5m, 0.3m
+    /// Speak distance when crossing key thresholds, and repeat if still in danger zone
     private func speakDistanceIfNeeded(_ distance: Float) {
         guard !isEmergencyActive else { return }
         guard distance < 1.2 else {
@@ -282,6 +316,8 @@ struct DashboardView: View {
             if lastSpokenThreshold < Float.greatestFiniteMagnitude {
                 lastSpokenThreshold = Float.greatestFiniteMagnitude
             }
+            proximityRepeatTimer?.invalidate()
+            proximityRepeatTimer = nil
             return
         }
 
@@ -297,9 +333,9 @@ struct DashboardView: View {
             return
         }
 
-        // Only speak if this is a NEW threshold crossing + cooldown elapsed
-        guard threshold != lastSpokenThreshold else { return }
-        guard Date().timeIntervalSince(lastDistanceSpeechTime) > 3.0 else { return }
+        // Speak if this is a NEW threshold crossing + cooldown elapsed
+        let isNewThreshold = threshold != lastSpokenThreshold
+        guard isNewThreshold || Date().timeIntervalSince(lastDistanceSpeechTime) > 4.0 else { return }
 
         lastSpokenThreshold = threshold
         lastDistanceSpeechTime = Date()
@@ -314,6 +350,21 @@ struct DashboardView: View {
 
         // Speak with high priority — stops any current speech first
         speak(distanceText, priority: true)
+
+        // For very close obstacles, set up a repeat timer
+        proximityRepeatTimer?.invalidate()
+        if threshold <= 0.5 {
+            proximityRepeatTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [self] _ in
+                let current = lidarManager.closestDistance
+                if current < 0.5 && !isEmergencyActive && !Narrator.shared.isSpeaking {
+                    let msg = current < 0.3 ? "Still very close." : "Still close. About 2 feet."
+                    speak(msg, priority: false)
+                } else {
+                    proximityRepeatTimer?.invalidate()
+                    proximityRepeatTimer = nil
+                }
+            }
+        }
     }
 
     /// Triple-tap emergency: speak location loudly + offer to call emergency services
