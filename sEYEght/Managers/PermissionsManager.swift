@@ -7,7 +7,6 @@
 
 import AVFoundation
 import CoreLocation
-import Speech
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -18,8 +17,6 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
 
     var cameraStatus: Bool = false
     var locationStatus: Bool = false
-    var microphoneStatus: Bool = false
-    var speechStatus: Bool = false
 
     /// Whether the user has never been asked (true = we can show the system dialog)
     var cameraNotDetermined: Bool {
@@ -27,12 +24,6 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
     }
     var locationNotDetermined: Bool {
         locationManager.authorizationStatus == .notDetermined
-    }
-    var microphoneNotDetermined: Bool {
-        AVAudioApplication.shared.recordPermission == .undetermined
-    }
-    var speechNotDetermined: Bool {
-        SFSpeechRecognizer.authorizationStatus() == .notDetermined
     }
 
     override init() {
@@ -50,9 +41,7 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
         cameraStatus = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         let locStatus = locationManager.authorizationStatus
         locationStatus = (locStatus == .authorizedWhenInUse || locStatus == .authorizedAlways)
-        microphoneStatus = AVAudioApplication.shared.recordPermission == .granted
-        speechStatus = SFSpeechRecognizer.authorizationStatus() == .authorized
-        print("[PermissionsManager] Camera=\(cameraStatus), Location=\(locationStatus), Mic=\(microphoneStatus), Speech=\(speechStatus)")
+        print("[PermissionsManager] Camera=\(cameraStatus), Location=\(locationStatus)")
     }
 
     func requestCamera() {
@@ -68,27 +57,6 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
     func requestLocation() {
         print("[PermissionsManager] Requesting location access")
         locationManager.requestWhenInUseAuthorization()
-    }
-
-    func requestMicrophone() {
-        print("[PermissionsManager] Requesting microphone access")
-        AVAudioApplication.requestRecordPermission { [weak self] granted in
-            DispatchQueue.main.async {
-                self?.microphoneStatus = granted
-                self?.confirmGrant(granted: granted, name: "Microphone")
-            }
-        }
-    }
-
-    func requestSpeechRecognition() {
-        print("[PermissionsManager] Requesting speech recognition access")
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                let granted = status == .authorized
-                self?.speechStatus = granted
-                self?.confirmGrant(granted: granted, name: "Speech Recognition")
-            }
-        }
     }
 
     // MARK: - CLLocationManagerDelegate
@@ -114,6 +82,6 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
     }
 
     var allGranted: Bool {
-        cameraStatus && locationStatus && microphoneStatus && speechStatus
+        cameraStatus && locationStatus
     }
 }

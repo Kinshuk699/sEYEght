@@ -15,7 +15,6 @@ struct sEYEghtApp: App {
     @State private var appState = AppState()
     @State private var lidarManager = LiDARManager()
     @State private var hapticsManager = HapticsManager()
-    @State private var speechManager = SpeechManager()
     @State private var visionManager = VisionManager()
     @State private var navigationManager = NavigationManager()
     @State private var subscriptionManager = SubscriptionManager()
@@ -33,7 +32,6 @@ struct sEYEghtApp: App {
             .environment(appState)
             .environment(lidarManager)
             .environment(hapticsManager)
-            .environment(speechManager)
             .environment(visionManager)
             .environment(navigationManager)
             .environment(subscriptionManager)
@@ -43,11 +41,11 @@ struct sEYEghtApp: App {
                 let startupHaptic = UINotificationFeedbackGenerator()
                 startupHaptic.notificationOccurred(.success)
 
-                // Configure audio session early so speech works on all screens including onboarding
+                // Configure audio session for playback (speech + tones, no mic needed)
                 do {
                     let session = AVAudioSession.sharedInstance()
-                    try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-                    try session.setActive(true)
+                    try session.setCategory(.playback, mode: .default, options: [.duckOthers, .mixWithOthers])
+                    try session.setActive(true, options: [])
                 } catch {
                     print("[sEYEghtApp] Audio session setup error: \(error)")
                 }
@@ -57,9 +55,8 @@ struct sEYEghtApp: App {
                 switch newPhase {
                 case .background:
                     lidarManager.stop()
-                    speechManager.stopListening()
                     hapticsManager.stopTone()
-                    print("[sEYEghtApp] Entered background — stopped LiDAR/speech")
+                    print("[sEYEghtApp] Entered background — stopped LiDAR")
                 case .active:
                     // Re-check critical permissions
                     if UserDefaults.standard.bool(forKey: "setupComplete") {
@@ -74,8 +71,7 @@ struct sEYEghtApp: App {
                     if appState.hasCompletedOnboarding {
                         hapticsManager.ensureEngine()
                         lidarManager.start()
-                        speechManager.startListening()
-                        print("[sEYEghtApp] Returned to foreground — restarted LiDAR/speech")
+                        print("[sEYEghtApp] Returned to foreground — restarted LiDAR")
                     }
                 default:
                     break

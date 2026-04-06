@@ -7,8 +7,8 @@
 
 import AVFoundation
 
-/// Centralized audio session manager. Prevents MapKit audio, LLM speech,
-/// and wake word listening from stepping on each other.
+/// Centralized audio session manager. Prevents audio conflicts
+/// between tone playback and speech synthesis.
 @Observable
 final class AudioSessionManager {
     static let shared = AudioSessionManager()
@@ -17,12 +17,12 @@ final class AudioSessionManager {
         print("[AudioSessionManager] Initialized")
     }
 
-    /// Configure for simultaneous playback + recording
+    /// Configure for playback (speech + tones)
     func configureForActiveSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true)
+            try session.setCategory(.playback, mode: .default, options: [.duckOthers, .mixWithOthers])
+            try session.setActive(true, options: [])
             print("[AudioSessionManager] Active session configured with ducking")
         } catch {
             print("[AudioSessionManager] ❌ Failed to configure session: \(error)")
@@ -33,7 +33,7 @@ final class AudioSessionManager {
     func beginSpeaking() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
+            try session.setCategory(.playback, mode: .default, options: [.duckOthers])
             print("[AudioSessionManager] Speaking mode — other audio ducked")
         } catch {
             print("[AudioSessionManager] ❌ Failed to set speaking mode: \(error)")
@@ -42,12 +42,7 @@ final class AudioSessionManager {
 
     /// Restore normal audio after AI Vision finishes speaking
     func endSpeaking() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setActive(true, options: [])
-            print("[AudioSessionManager] Normal mode restored")
-        } catch {
-            print("[AudioSessionManager] ❌ Failed to restore normal mode: \(error)")
-        }
+        // Don't deactivate the session — just log restoration
+        print("[AudioSessionManager] Normal mode restored")
     }
 }

@@ -9,20 +9,24 @@ import AVFoundation
 import SwiftUI
 
 /// Single shared speech output for the entire app.
-/// Any new speech automatically stops whatever was playing before.
+/// Uses OpenAI TTS for natural voice (scene descriptions), falls back to Apple TTS for quick alerts.
 final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = Narrator()
 
     private let synth = AVSpeechSynthesizer()
     private var continuation: CheckedContinuation<Void, Never>?
+    private var audioPlayer: AVAudioPlayer?
 
-    /// Best available voice — prefers enhanced/premium in user's locale
+    /// True while OpenAI TTS audio is playing
+    private var isPlayingOpenAI = false
+
+    /// Best available Apple voice — used as fallback for short alerts
     private var selectedVoice: AVSpeechSynthesisVoice?
 
     /// Whether we're using a high-quality voice (enhanced or premium)
     var hasHighQualityVoice: Bool {
-        guard let voice = selectedVoice else { return false }
-        return voice.quality == .enhanced || voice.quality == .premium
+        // We have OpenAI TTS now, so always true
+        return true
     }
 
     private override init() {
@@ -30,76 +34,126 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
         super.init()
         synth.delegate = self
         if let voice = selectedVoice {
-            print("[Narrator] Using voice: \(voice.name) id=\(voice.identifier) quality=\(voice.quality.rawValue)")
-        } else {
-            print("[Narrator] ⚠️ No good voice found — using system default (robotic)")
+            print("[Narrator] Apple fallback voice: \(voice.name) quality=\(voice.quality.rawValue)")
         }
+        print("[Narrator] OpenAI TTS enabled as primary voice")
     }
 
     /// Re-select the best available voice (call after user downloads an enhanced voice)
     func refreshVoice() {
         selectedVoice = Self.pickBestVoice()
         if let voice = selectedVoice {
-            print("[Narrator] \u{1f504} Voice refreshed: \(voice.name) quality=\(voice.quality.rawValue)")
+            print("[Narrator] 🔄 Voice refreshed: \(voice.name) quality=\(voice.quality.rawValue)")
         }
     }
 
     private static func pickBestVoice() -> AVSpeechSynthesisVoice? {
         let voices = AVSpeechSynthesisVoice.speechVoices()
-
-        // Log all English voices for debugging
         let enVoices = voices.filter { $0.language.hasPrefix("en") }
-        print("[Narrator] Available English voices (\(enVoices.count)):")
-        for v in enVoices.sorted(by: { $0.quality.rawValue > $1.quality.rawValue }) {
-            print("  - \(v.name) | \(v.language) | quality=\(v.quality.rawValue) | id=\(v.identifier)")
-        }
 
-        // 1. Premium (requires download — best quality)
-        if let v = enVoices.first(where: { $0.quality == .premium }) {
-            print("[Narrator] ✅ Found premium voice: \(v.name)")
-            return v
-        }
+        // Premium > Enhanced > Compact
+        if let v = enVoices.first(where: { $0.quality == .premium }) { return v }
 
-        // 2. Enhanced by name preference (requires download)
         let preferred = ["Ava", "Samantha", "Allison", "Zoe", "Susan", "Victoria"]
         for name in preferred {
-            if let v = enVoices.first(where: { $0.quality == .enhanced && $0.name.contains(name) }) {
-                print("[Narrator] ✅ Found enhanced voice: \(v.name)")
-                return v
-            }
+            if let v = enVoices.first(where: { $0.quality == .enhanced && $0.name.contains(name) }) { return v }
         }
+        if let v = enVoices.first(where: { $0.quality == .enhanced }) { return v }
 
-        // 3. Any enhanced
-        if let v = enVoices.first(where: { $0.quality == .enhanced }) {
-            print("[Narrator] ✅ Found enhanced voice: \(v.name)")
-            return v
-        }
-
-        // 4. Best compact voices — these are always available, no download needed
-        // "Samantha" is the classic Siri voice and sounds less robotic than others
         let compactPreferred = ["Samantha", "Ava", "Allison", "Zoe", "Nicky", "Karen"]
         for name in compactPreferred {
-            if let v = enVoices.first(where: { $0.name.contains(name) }) {
-                print("[Narrator] Using compact voice: \(v.name)")
-                return v
-            }
+            if let v = enVoices.first(where: { $0.name.contains(name) }) { return v }
         }
-
-        // 5. Any English voice at all
-        if let v = enVoices.first {
-            print("[Narrator] Falling back to: \(v.name)")
-            return v
-        }
-
-        return nil
+        return enVoices.first
     }
 
-    /// Speak text, stopping any current speech first.
-    func speak(_ text: String, rate: Float = 0.45, volume: Float = 0.9) {
-        synth.stopSpeaking(at: .immediate)
-        // Cancel any pending speakAndWait continuation
-        continuation?.resume()
-        continuation = nil
+    // MARK: - Primary: OpenAI TTS
+
+    /// Speak using OpenAI TTS (natural voice). Falls back to Apple TTS if network fails.
+    func speakWithOpenAI(_ text: String) {
+        // Stop any current speech
+        stopAll()
+
+        let apiKey = SeyeghtSecrets.openAIKey
+        guard !apiKey.isEmpty else {
+            speak(text) // Fallback
+            return
+        }
+
+        let url = URL(string: "https://api.openai.com/v1/audio/speech")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10.0
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": "tts-1",
+            "input": text,
+            "voice": "nova",
+            "response_format": "mp3",
+            "speed": 1.0
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        isPlayingOpenAI = true
+        print("[Narrator] OpenAI TTS request: \"\(text.prefix(80))\"")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("[Narrator] OpenAI TTS error: \(error.localizedDescription), falling back to Apple")
+                    self.isPlayingOpenAI = false
+                    self.speak(text)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
+                      let data = data, data.count > 100 else {
+                    print("[Narrator] OpenAI TTS failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)), falling back to Apple")
+                    self.isPlayingOpenAI = false
+                    self.speak(text)
+                    return
+                }
+
+                do {
+                    let player = try AVAudioPlayer(data: data)
+                    player.delegate = self
+                    player.volume = 0.9
+                    self.audioPlayer = player
+                    player.play()
+                    print("[Narrator] ✅ OpenAI TTS playing (\(data.count) bytes)")
+                } catch {
+                    print("[Narrator] AVAudioPlayer error: \(error), falling back to Apple")
+                    self.isPlayingOpenAI = false
+                    self.speak(text)
+                }
+            }
+        }.resume()
+    }
+
+    /// Speak with OpenAI TTS and wait until done.
+    func speakWithOpenAIAndWait(_ text: String) async {
+        speakWithOpenAI(text)
+        await withCheckedContinuation { cont in
+            self.continuation = cont
+        }
+    }
+
+    // MARK: - Fallback: Apple TTS
+
+    /// Speak using Apple's built-in TTS. Used for quick alerts and fallback.
+    /// If `interruptible` is false, won't interrupt currently playing speech.
+    func speak(_ text: String, rate: Float = 0.45, volume: Float = 0.9, interruptible: Bool = true) {
+        // Don't interrupt OpenAI TTS or ongoing Apple speech with non-priority messages
+        if !interruptible && (isPlayingOpenAI || synth.isSpeaking) {
+            print("[Narrator] Skipping non-priority speech while already speaking: \"\(text.prefix(40))\"")
+            return
+        }
+
+        stopAll()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = rate
@@ -118,16 +172,28 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    /// Stop any current speech immediately.
+    /// Stop all speech (both OpenAI and Apple).
     func stop() {
+        stopAll()
+    }
+
+    private func stopAll() {
+        // Stop OpenAI audio
+        audioPlayer?.stop()
+        audioPlayer = nil
+        isPlayingOpenAI = false
+
+        // Stop Apple TTS
         synth.stopSpeaking(at: .immediate)
+
+        // Resume any waiting continuations
         continuation?.resume()
         continuation = nil
     }
 
-    /// Whether the narrator is currently speaking.
+    /// Whether the narrator is currently speaking (either engine).
     var isSpeaking: Bool {
-        synth.isSpeaking
+        synth.isSpeaking || isPlayingOpenAI
     }
 
     // MARK: - AVSpeechSynthesizerDelegate
@@ -140,6 +206,30 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         continuation?.resume()
         continuation = nil
+    }
+}
+
+// MARK: - AVAudioPlayerDelegate (OpenAI TTS playback)
+
+extension Narrator: AVAudioPlayerDelegate {
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlayingOpenAI = false
+            self?.audioPlayer = nil
+            self?.continuation?.resume()
+            self?.continuation = nil
+            print("[Narrator] OpenAI TTS playback finished")
+        }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        DispatchQueue.main.async { [weak self] in
+            self?.isPlayingOpenAI = false
+            self?.audioPlayer = nil
+            self?.continuation?.resume()
+            self?.continuation = nil
+            print("[Narrator] OpenAI TTS decode error: \(error?.localizedDescription ?? "unknown")")
+        }
     }
 }
 

@@ -35,19 +35,43 @@ final class VisionManager {
             print("[VisionManager] Already processing, skipping")
             return
         }
-        guard let frame = session?.currentFrame else {
-            print("[VisionManager] ❌ No current AR frame available")
+
+        // Try to get a frame — retry briefly if AR just started
+        var frame: ARFrame? = session?.currentFrame
+        if frame == nil {
+            // AR may not have a frame yet — wait briefly
+            print("[VisionManager] No frame yet, will retry")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self, !self.isProcessing else { return }
+                if let f = session?.currentFrame {
+                    self.isProcessing = true
+                    print("[VisionManager] Capturing frame for analysis (retry)")
+                    let pixelBuffer = f.capturedImage
+                    if let jpegData = self.compressFrame(pixelBuffer) {
+                        print("[VisionManager] Compressed to \(jpegData.count) bytes, sending to API")
+                        self.sendToOpenAI(imageData: jpegData)
+                    } else {
+                        print("[VisionManager] ❌ Failed to compress frame")
+                        self.isProcessing = false
+                        self.speakText("Couldn't capture the camera image. Try again.")
+                    }
+                } else {
+                    print("[VisionManager] ❌ No current AR frame available after retry")
+                    self.speakText("Camera not ready yet. Try again in a moment.")
+                }
+            }
             return
         }
 
         isProcessing = true
         print("[VisionManager] Capturing frame for analysis")
 
-        let pixelBuffer = frame.capturedImage
+        let pixelBuffer = frame!.capturedImage
 
         guard let jpegData = compressFrame(pixelBuffer) else {
             print("[VisionManager] ❌ Failed to compress frame")
             isProcessing = false
+            speakText("Couldn't capture the camera image. Try again.")
             return
         }
 
@@ -151,7 +175,13 @@ final class VisionManager {
                     case 401:
                         self?.speakText("My vision system needs reconfiguration. The API key may be invalid.")
                     case 429:
-                        self?.speakText("Too many requests right now. Please wait a moment and try again.")
+                        // Check if it's quota exhaustion vs actual rate limiting
+                        if let data = data, let raw = String(data: data, encoding: .utf8),
+                           raw.contains("insufficient_quota") {
+                            self?.speakText("Your A I credits have run out. Please add billing to your OpenAI account, or update the API key.")
+                        } else {
+                            self?.speakText("Too many requests right now. Please wait a moment and try again.")
+                        }
                     case 500...599:
                         self?.speakText("The vision service is temporarily down. Try again in a moment.")
                     default:
@@ -186,13 +216,9 @@ final class VisionManager {
     }
 
     private func speakText(_ text: String) {
-        AudioSessionManager.shared.beginSpeaking()
         print("[VisionManager] Speaking: \(text)")
         if let onSpeechRequest = onSpeechRequest {
             onSpeechRequest(text)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(text.count) * 0.06) {
-            AudioSessionManager.shared.endSpeaking()
         }
     }
 }

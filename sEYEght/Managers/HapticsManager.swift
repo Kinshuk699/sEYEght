@@ -22,7 +22,7 @@ final class HapticsManager {
     var audioToneEnabled: Bool = true
 
     /// Volume of the proximity beep tone: 0.0 (silent) to 1.0 (full)
-    var audioToneVolume: Float = 0.15
+    var audioToneVolume: Float = 0.04
 
     /// Maximum detection range in meters
     var maxRange: Double = 1.5

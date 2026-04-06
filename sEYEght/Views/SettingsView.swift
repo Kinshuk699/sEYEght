@@ -83,23 +83,6 @@ struct SettingsView: View {
                     displayValue: String(format: "%.1fx", settings.speechRate * 2)
                 )
 
-                // Wake Phrase (read-only)
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Wake Phrase")
-                            .font(SeyeghtTheme.bodyBold)
-                            .foregroundColor(SeyeghtTheme.primaryText)
-                    }
-                    Spacer()
-                    Text("Hey Sight")
-                        .font(SeyeghtTheme.body)
-                        .foregroundColor(SeyeghtTheme.secondaryText)
-                }
-                .padding(20)
-                .background(SeyeghtTheme.cardBackground)
-                .cornerRadius(SeyeghtTheme.cardCornerRadius)
-                .accessibilityLabel("Wake phrase: Hey Sight. Read only.")
-
                 // MARK: - AI Vision
                 SectionHeader(title: "AI VISION")
 

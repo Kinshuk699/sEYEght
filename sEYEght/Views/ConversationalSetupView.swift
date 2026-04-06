@@ -14,7 +14,6 @@ import CoreMotion
 /// One voice, one screen, one conversation.
 struct ConversationalSetupView: View {
     @Environment(HapticsManager.self) private var hapticsManager
-    @Environment(SpeechManager.self) private var speechManager
     @Environment(VisionManager.self) private var visionManager
     @Environment(LiDARManager.self) private var lidarManager
     @Environment(AppState.self) private var appState
@@ -24,7 +23,6 @@ struct ConversationalSetupView: View {
     @State private var statusText: String = "Setting up..."
     @State private var isPulsing = false
     @State private var navigateToDashboard = false
-    @State private var isListeningForWake = false
 
     enum SetupPhase: Int, CaseIterable {
         case welcome
@@ -64,16 +62,6 @@ struct ConversationalSetupView: View {
                     .padding(.horizontal, 32)
                     .readable(statusText)
 
-                // Live transcription shown during wake-word listening
-                if isListeningForWake {
-                    Text(speechManager.lastRecognizedText.isEmpty ? "Listening..." : speechManager.lastRecognizedText)
-                        .font(.system(size: 15))
-                        .foregroundColor(SeyeghtTheme.secondaryText)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                        .animation(.easeInOut(duration: 0.2), value: speechManager.lastRecognizedText)
-                }
-
                 Spacer()
             }
         }
@@ -102,7 +90,7 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         // Don't continue if mandatory permissions are missing
-        guard permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus else {
+        guard permissionsManager.cameraStatus && permissionsManager.locationStatus else {
             statusText = "Waiting for permissions..."
             return
         }
@@ -125,7 +113,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "Hi there. I'm Seyeght — your personal navigation assistant. I use your iPhone's camera and sensors to detect obstacles around you, warn you with sounds and vibrations, and describe what's in front of you. Let's get you set up. It'll take about two minutes."
         )
         guard !Task.isCancelled else { return }
@@ -133,7 +121,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1.5))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "I'll need a few permissions to work. I'll ask for each one now and explain why."
         )
     }
@@ -141,16 +129,8 @@ struct ConversationalSetupView: View {
     // MARK: - Phase 1b: Voice Quality Check
 
     private func phaseVoiceCheck() async {
-        if Narrator.shared.hasHighQualityVoice {
-            // Already has good voice — skip silently
-            return
-        }
-
-        statusText = "Voice Quality"
-
-        await Narrator.shared.speakAndWait(
-            "Quick tip. My voice might sound a bit robotic. You can improve it later by going to your iPhone Settings, Accessibility, Spoken Content, Voices, English, and downloading Ava Enhanced. But that's optional — let's keep going."
-        )
+        // OpenAI TTS is now the primary voice — skip voice quality check
+        return
     }
 
     // MARK: - Phase 2: Permissions
@@ -187,41 +167,11 @@ struct ConversationalSetupView: View {
         )
         guard !Task.isCancelled else { return }
 
-        // Microphone (mandatory — required for voice commands)
-        await handlePermission(
-            name: "Microphone",
-            alreadyGranted: permissionsManager.microphoneStatus,
-            notDetermined: permissionsManager.microphoneNotDetermined,
-            firstTimePrompt: "I need access to your microphone so you can talk to me. You'll be able to say things like 'Hey Sight' or 'What is near me' to control the app with your voice. You'll hear a prompt now — please tap Allow.",
-            alreadyDeniedPrompt: "I need microphone access for voice commands, but it was previously denied. I'll open your Settings now — please turn on Microphone for Seyeght, then come back.",
-            request: { permissionsManager.requestMicrophone() },
-            check: { permissionsManager.microphoneStatus },
-            grantedMessage: "Microphone ready. You'll be able to talk to me.",
-            deniedMessage: "I wasn't able to get microphone access. Voice commands won't work without it."
-        )
-        guard !Task.isCancelled else { return }
-
-        // Speech Recognition (mandatory — required to understand voice)
-        await handlePermission(
-            name: "Speech Recognition",
-            alreadyGranted: permissionsManager.speechStatus,
-            notDetermined: permissionsManager.speechNotDetermined,
-            firstTimePrompt: "Last one — speech recognition. This lets me understand what you say. You'll hear a prompt now.",
-            alreadyDeniedPrompt: "I need speech recognition access, but it was previously denied. I'll open your Settings now — please turn on Speech Recognition for Seyeght, then come back.",
-            request: { permissionsManager.requestSpeechRecognition() },
-            check: { permissionsManager.speechStatus },
-            grantedMessage: "All set. I can now understand your voice commands.",
-            deniedMessage: "I wasn't able to get speech recognition access. Voice commands won't work without it."
-        )
-        guard !Task.isCancelled else { return }
-
-        // After all 4 have been individually requested, check if any were denied
-        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
+        // After both have been individually requested, check if any were denied
+        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
             let missing = [
                 !permissionsManager.cameraStatus ? "Camera" : nil,
                 !permissionsManager.locationStatus ? "Location" : nil,
-                !permissionsManager.microphoneStatus ? "Microphone" : nil,
-                !permissionsManager.speechStatus ? "Speech Recognition" : nil,
             ].compactMap { $0 }.joined(separator: " and ")
 
             await Narrator.shared.speakAndWait(
@@ -236,13 +186,13 @@ struct ConversationalSetupView: View {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
-                if permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus {
+                if permissionsManager.cameraStatus && permissionsManager.locationStatus {
                     await Narrator.shared.speakAndWait("Thank you. All permissions are ready. Let's continue.")
                     break
                 }
             }
 
-            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
+            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
                 await Narrator.shared.speakAndWait(
                     "I still can't access what I need. The app will try again next time you open it."
                 )
@@ -333,8 +283,6 @@ struct ConversationalSetupView: View {
         switch name {
         case "Camera": return permissionsManager.cameraNotDetermined
         case "Location": return permissionsManager.locationNotDetermined
-        case "Microphone": return permissionsManager.microphoneNotDetermined
-        case "Speech Recognition": return permissionsManager.speechNotDetermined
         default: return false
         }
     }
@@ -354,7 +302,7 @@ struct ConversationalSetupView: View {
         phase = .mountPhone
         statusText = "Mount Phone"
 
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "Now, let's get your phone positioned. Attach your iPhone to your chest using a lanyard, clip, or chest strap. The back camera — that's the one facing away from the screen — should point straight ahead, away from your body."
         )
         guard !Task.isCancelled else { return }
@@ -362,7 +310,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(2))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("Once it's in place, I'll check if the camera can see clearly. Take your time.")
+        await Narrator.shared.speakWithOpenAIAndWait("Once it's in place, I'll check if the camera can see clearly. Take your time.")
         guard !Task.isCancelled else { return }
 
         // Camera verification (only if camera was granted)
@@ -414,21 +362,20 @@ struct ConversationalSetupView: View {
         await demoHaptics()
         guard !Task.isCancelled else { return }
 
-        // 4c — Voice command practice (now mandatory — mic + speech should be granted)
-        if permissionsManager.microphoneStatus && permissionsManager.speechStatus {
-            await demoVoiceCommands()
-            guard !Task.isCancelled else { return }
-        }
-
-        // 4d — Live camera demo
+        // 4c — Live camera demo
         if permissionsManager.cameraStatus {
             await demoCameraVision()
             guard !Task.isCancelled else { return }
         }
+
+        // 4d — Explain interaction model
+        await Narrator.shared.speakWithOpenAIAndWait(
+            "To use the app, just double-tap anywhere on the screen and I'll describe what's in front of you. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly."
+        )
     }
 
     private func demoBeeps() async {
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "Let me show you how obstacle detection works. You'll hear a beep. The faster it beeps, the closer you are to something."
         )
         guard !Task.isCancelled else { return }
@@ -495,54 +442,6 @@ struct ConversationalSetupView: View {
         await Narrator.shared.speakAndWait("And that urgent feeling is for emergencies.")
     }
 
-    private func demoVoiceCommands() async {
-        await Narrator.shared.speakAndWait("You can talk to me too. Let's practice. Say Hey Sight now.")
-        guard !Task.isCancelled else { return }
-
-        // Let audio session fully settle before starting the mic
-        try? await Task.sleep(for: .milliseconds(600))
-        guard !Task.isCancelled else { return }
-
-        isListeningForWake = true // Show live transcription on screen
-
-        // Listen for wake phrase using a continuation
-        let heard = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            var resumed = false
-            speechManager.onWakeWordDetected = {
-                guard !resumed else { return }
-                resumed = true
-                cont.resume(returning: true)
-            }
-            speechManager.startListening()
-
-            // Timeout after 12 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
-                guard !resumed else { return }
-                resumed = true
-                cont.resume(returning: false)
-            }
-        }
-
-        isListeningForWake = false
-        speechManager.onWakeWordDetected = nil
-        speechManager.stopListening()
-
-        if heard {
-            await Narrator.shared.speakAndWait(
-                "I heard you! When you say that during navigation, I'll describe what's around you."
-            )
-        } else {
-            await Narrator.shared.speakAndWait(
-                "I didn't catch that — no worries. You can always try again later. Say Hey Sight anytime during navigation."
-            )
-        }
-        guard !Task.isCancelled else { return }
-
-        await Narrator.shared.speakAndWait(
-            "You can also say 'Where am I' anytime to hear your current street address. Or try natural commands like 'What is near me' or 'Describe what is in front of me'. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly."
-        )
-    }
-
     private func demoCameraVision() async {
         await Narrator.shared.speakAndWait(
             "Let's do a quick test. I'm going to look through your camera right now and describe what I see."
@@ -550,6 +449,9 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         statusText = "Analyzing..."
+
+        // Clear any previous description so we know if this call succeeded
+        visionManager.lastDescription = ""
 
         // Start ARKit if not running
         if !lidarManager.isRunning {
@@ -576,11 +478,11 @@ struct ConversationalSetupView: View {
             guard !Task.isCancelled else { return }
 
             await Narrator.shared.speakAndWait(
-                "That's what you'll hear when you tap the screen or say Hey Sight during navigation."
+                "That's what you'll hear when you double-tap the screen during navigation."
             )
         } else {
             await Narrator.shared.speakAndWait(
-                "The scene description feature needs a bit more setup. You'll be able to use it later — just tap the screen during navigation."
+                "I couldn't describe the scene this time — that can happen on first try. Don't worry, it will work during navigation. Just double-tap the screen."
             )
         }
     }
@@ -591,7 +493,7 @@ struct ConversationalSetupView: View {
         phase = .ready
         statusText = "Ready!"
 
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "Setup complete. You're ready to go. From now on, just open the app, mount your phone, and start walking. I'll keep watch."
         )
         guard !Task.isCancelled else { return }
@@ -599,7 +501,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("Let's begin.")
+        await Narrator.shared.speakWithOpenAIAndWait("Let's begin.")
 
         // Mark setup as complete
         appState.hasCompletedOnboarding = true

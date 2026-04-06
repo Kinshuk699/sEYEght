@@ -32,15 +32,22 @@ final class SpeechManager {
     // Multiple phrasings that speech recognizer might produce for wake word
     private let wakePhrases = [
         "hey sight", "hey site", "hey sigh", "a sight", "hey say",
-        "hey seyeght", "hey say it", "hey side", "hey light"
+        "hey seyeght", "hey say it", "hey side", "hey light",
+        "hey cite", "hey fight", "hey slide", "heysite", "heysight",
+        "hey psy", "hey sai", "hey sci"
     ]
 
-    // Natural commands that also trigger scene description
+    // Natural commands that also trigger scene description — fuzzy partial matching
     private let describeCommands = [
         "what is near me", "what's near me", "what is in front", "what's in front",
         "describe", "what do you see", "what can you see", "what is around me",
         "what's around me", "tell me what you see", "what is ahead", "what's ahead",
-        "look around", "scan", "help me see", "what is there"
+        "look around", "scan", "help me see", "what is there",
+        "what am i seeing", "what am i looking at", "what's in front of me",
+        "what is in front of me", "what do i see", "describe the scene",
+        "describe what", "what's there", "what's out there", "what's happening",
+        "what is happening", "tell me what's", "what is this", "what's this",
+        "can you see", "see anything", "what is out there"
     ]
 
     private var isStopped = false  // true = user explicitly called stopListening()
@@ -122,9 +129,14 @@ final class SpeechManager {
                 }
 
                 // Check for wake phrase OR natural describe commands
+                // Use word-boundary-tolerant matching: check if text contains the phrase
                 let wakeDetected = self.wakePhrases.contains { text.contains($0) }
                 let describeDetected = self.describeCommands.contains { text.contains($0) }
-                if wakeDetected || describeDetected {
+                // Also catch partial matches for common patterns
+                let partialDescribe = text.contains("what am i") || text.contains("what do i") ||
+                    text.contains("see right now") || text.contains("seeing right now") ||
+                    text.contains("looking at") || text.contains("in front of")
+                if wakeDetected || describeDetected || partialDescribe {
                     print("[SpeechManager] 🎤 Command detected! Text: '\(text)' (wake=\(wakeDetected), describe=\(describeDetected))")
 
                     #if canImport(UIKit)

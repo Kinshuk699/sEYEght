@@ -13,7 +13,6 @@ struct DashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(LiDARManager.self) private var lidarManager
     @Environment(HapticsManager.self) private var hapticsManager
-    @Environment(SpeechManager.self) private var speechManager
     @Environment(VisionManager.self) private var visionManager
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(SubscriptionManager.self) private var subscriptionManager
@@ -33,6 +32,8 @@ struct DashboardView: View {
     @State private var proximityRepeatTimer: Timer?
     /// Suppress other speech during emergency mode
     @State private var isEmergencyActive = false
+    /// Cooldown: last time a scene analysis was requested (prevents API flooding)
+    @State private var lastAnalysisTime: Date = .distantPast
 
     var body: some View {
         ZStack {
@@ -97,24 +98,6 @@ struct DashboardView: View {
                     .accessibilityLabel(lidarManager.isRunning ? "Seyeght is active" : "Seyeght is starting")
                     Spacer()
 
-                    // Listening indicator
-                    if speechManager.isListening {
-                        HStack(spacing: 4) {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.green)
-                                .symbolEffect(.pulse)
-                            Text("Listening")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.green)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(10)
-                        .accessibilityLabel("Voice commands active")
-                    }
-
                     Spacer()
 
                     // Distance readout (top-right)
@@ -156,28 +139,15 @@ struct DashboardView: View {
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "Tap anywhere or say 'Hey Sight'")
+                    Text(isAnalyzingScene ? "Describing scene…" : "Double-tap to describe what's ahead")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
-
-                    // Live transcription so user can see what voice recognizer hears
-                    if speechManager.isListening && !speechManager.lastRecognizedText.isEmpty {
-                        Text(speechManager.lastRecognizedText)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(SeyeghtTheme.secondaryText)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 4)
-                            .background(Color.black.opacity(0.4))
-                            .cornerRadius(8)
-                            .animation(.easeInOut(duration: 0.2), value: speechManager.lastRecognizedText)
-                    }
                 }
-                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap anywhere or say Hey Sight to describe scene")
+                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Double-tap anywhere to describe scene")
 
                 Spacer()
 
@@ -207,7 +177,7 @@ struct DashboardView: View {
         .onTapGesture(count: 3) {
             handleEmergencyTripleTap()
         }
-        .onTapGesture {
+        .onTapGesture(count: 2) {
             handleSceneTap()
         }
         .onAppear {
@@ -230,26 +200,16 @@ struct DashboardView: View {
                 guard !Task.isCancelled else { return }
                 hapticsManager.ensureEngine()
                 lidarManager.start()
-                speechManager.onWakeWordDetected = {
-                    // Spoken confirmation that voice was heard, then describe scene
-                    speak("Heard you.", priority: true)
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(1))
-                        guard !Task.isCancelled else { return }
-                        handleSceneTap()
-                    }
-                }
-                speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
-                speechManager.startListening()
 
                 // Wire all managers' speech through Dashboard's single synthesizer
-                visionManager.onSpeechRequest = { text in speak(text) }
+                // Scene descriptions use OpenAI TTS for natural voice
+                visionManager.onSpeechRequest = { text in speakNatural(text) }
                 navigationManager.onSpeechRequest = { text in speak(text) }
 
                 // Spoken welcome so blind users know the app is working
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Seyeght ready. LiDAR scanning. Tap anywhere, say Hey Sight, or just say what is near me. You can also say Where am I.")
+                speak("Seyeght ready. LiDAR scanning. Double-tap the screen to describe what's ahead. Triple-tap for emergency mode.")
             }
         }
         .onDisappear {
@@ -273,8 +233,21 @@ struct DashboardView: View {
     }
 
     private func handleSceneTap() {
-        guard !isAnalyzingScene else { return }
+        guard !isAnalyzingScene else {
+            speak("Still looking. Please wait.", priority: false)
+            return
+        }
         guard !isEmergencyActive else { return }
+
+        // Rate limit: minimum 8 seconds between analysis requests to avoid API flooding
+        let timeSinceLast = Date().timeIntervalSince(lastAnalysisTime)
+        if timeSinceLast < 8.0 {
+            let waitTime = Int(ceil(8.0 - timeSinceLast))
+            speak("Please wait \(waitTime) seconds before asking again.", priority: false)
+            return
+        }
+        lastAnalysisTime = Date()
+
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
@@ -429,12 +402,20 @@ struct DashboardView: View {
 
     // MARK: - Centralized Speech
 
-    /// Single voice output — stops current speech if priority, otherwise queues.
+    /// Single voice output — stops current speech if priority, otherwise skips if busy.
     private func speak(_ text: String, priority: Bool = false) {
         if priority {
             Narrator.shared.stop()
+            Narrator.shared.speak(text, rate: 0.45, volume: 0.85)
+        } else {
+            // Non-priority: don't interrupt ongoing speech
+            Narrator.shared.speak(text, rate: 0.45, volume: 0.85, interruptible: false)
         }
-        Narrator.shared.speak(text, rate: 0.45, volume: 0.85)
+    }
+
+    /// Speak important content (scene descriptions) using OpenAI TTS for natural voice.
+    private func speakNatural(_ text: String) {
+        Narrator.shared.speakWithOpenAI(text)
     }
 
     /// Returns a color from green (far) → yellow → red (close) based on proximity 0…1
