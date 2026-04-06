@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import CoreLocation
 
 @main
 struct sEYEghtApp: App {
@@ -23,7 +24,11 @@ struct sEYEghtApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                OnboardingContainerView()
+                if UserDefaults.standard.bool(forKey: "setupComplete") {
+                    DashboardView()
+                } else {
+                    ConversationalSetupView()
+                }
             }
             .environment(appState)
             .environment(lidarManager)
@@ -52,6 +57,15 @@ struct sEYEghtApp: App {
                     hapticsManager.stopTone()
                     print("[sEYEghtApp] Entered background — stopped LiDAR/speech")
                 case .active:
+                    // Re-check critical permissions
+                    if UserDefaults.standard.bool(forKey: "setupComplete") {
+                        let camOK = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+                        let locMgr = CLLocationManager()
+                        let locOK = (locMgr.authorizationStatus == .authorizedWhenInUse || locMgr.authorizationStatus == .authorizedAlways)
+                        if !camOK || !locOK {
+                            Narrator.shared.speak("Seyeght needs camera and location access to keep you safe. Please re-enable them in your iPhone Settings.")
+                        }
+                    }
                     // Re-start if they were running before (user returned from background)
                     if appState.hasCompletedOnboarding {
                         hapticsManager.ensureEngine()

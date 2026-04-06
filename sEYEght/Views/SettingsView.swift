@@ -15,6 +15,7 @@ struct SettingsView: View {
     @Environment(HapticsManager.self) private var hapticsManager
     @Query private var settingsArray: [UserSettings]
     @State private var navigateToSubscription = false
+    @State private var navigateToSetup = false
     @State private var speechWorkItem: DispatchWorkItem?
 
     private var settings: UserSettings {
@@ -142,6 +143,14 @@ struct SettingsView: View {
                 .background(SeyeghtTheme.cardBackground)
                 .cornerRadius(SeyeghtTheme.cardCornerRadius)
                 .accessibilityLabel("Version 1.0")
+
+                // MARK: - Setup
+                SectionHeader(title: "SETUP")
+
+                HapticButton("Redo Setup Tutorial") {
+                    UserDefaults.standard.set(false, forKey: "setupComplete")
+                    navigateToSetup = true
+                }
             }
             .padding(.horizontal, SeyeghtTheme.horizontalPadding)
             .padding(.top, 8)
@@ -170,6 +179,9 @@ struct SettingsView: View {
         .toolbarBackground(SeyeghtTheme.background, for: .navigationBar)
         .navigationDestination(isPresented: $navigateToSubscription) {
             SubscriptionView()
+        }
+        .navigationDestination(isPresented: $navigateToSetup) {
+            ConversationalSetupView()
         }
         .onChange(of: settings.hapticIntensityLevel) { _, newVal in
             hapticsManager.userIntensityLevel = newVal
