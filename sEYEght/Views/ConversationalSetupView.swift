@@ -129,8 +129,54 @@ struct ConversationalSetupView: View {
     // MARK: - Phase 1b: Voice Quality Check
 
     private func phaseVoiceCheck() async {
-        // OpenAI TTS is now the primary voice — skip voice quality check
-        return
+        // Already have an enhanced or premium voice — no download needed
+        if Narrator.shared.hasHighQualityVoice {
+            print("[Setup] Voice quality OK: \(Narrator.shared.voiceDescription)")
+            return
+        }
+
+        // User has only compact (robotic) voice — guide them to download a better one
+        statusText = "Voice Setup"
+
+        await Narrator.shared.speakAndWait(
+            "Right now I'm using a basic voice that sounds a bit robotic. Your iPhone can download a much more natural-sounding voice for free. It takes about a minute."
+        )
+        guard !Task.isCancelled else { return }
+
+        await Narrator.shared.speakAndWait(
+            "I'm going to open your Settings now. Go to Accessibility, then Spoken Content, then Voices, then English. Tap the download button next to Ava or Samantha Enhanced. When it's done, come back to this app."
+        )
+        guard !Task.isCancelled else { return }
+
+        // Open Accessibility settings (closest we can get programmatically)
+        await MainActor.run {
+            if let url = URL(string: "App-prefs:ACCESSIBILITY") {
+                UIApplication.shared.open(url)
+            }
+        }
+
+        // Poll until they come back with an enhanced voice (up to 5 minutes)
+        for _ in 0..<600 {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            Narrator.shared.refreshVoice()
+            if Narrator.shared.hasHighQualityVoice {
+                await Narrator.shared.speakAndWait(
+                    "Excellent! I can hear the difference already. \(Narrator.shared.voiceDescription) is loaded. Much better."
+                )
+                return
+            }
+        }
+
+        // They came back without downloading — that's OK, continue with what we have
+        Narrator.shared.refreshVoice()
+        if Narrator.shared.hasHighQualityVoice {
+            await Narrator.shared.speakAndWait("Great, new voice is ready. Let's continue.")
+        } else {
+            await Narrator.shared.speakAndWait(
+                "No worries, we'll use the current voice for now. You can always download a better one later in Settings under Accessibility, Spoken Content, Voices."
+            )
+        }
     }
 
     // MARK: - Phase 2: Permissions

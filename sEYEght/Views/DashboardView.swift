@@ -35,6 +35,8 @@ struct DashboardView: View {
     @State private var isEmergencyActive = false
     /// Cooldown: last time a scene analysis was requested (prevents API flooding)
     @State private var lastAnalysisTime: Date = .distantPast
+    /// Suppress distance warnings while scene description is playing
+    @State private var sceneSpeechUntil: Date = .distantPast
 
     var body: some View {
         ZStack {
@@ -210,10 +212,10 @@ struct DashboardView: View {
                 // Start shake detection — shaking is easier than tapping for chest-mounted phone
                 ShakeDetector.shared.start()
 
-                // Spoken welcome so blind users know the app is working (OpenAI TTS for consistency)
+                // Spoken welcome so blind users know the app is working
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speakNatural("Seyeght ready. LiDAR scanning. Double-tap the screen or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
+                speak("Seyeght ready. LiDAR scanning. Double-tap the screen or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
             }
         }
         .onDisappear {
@@ -302,6 +304,8 @@ struct DashboardView: View {
     /// Speak distance when crossing key thresholds, and repeat if still in danger zone
     private func speakDistanceIfNeeded(_ distance: Float) {
         guard !isEmergencyActive else { return }
+        // Suppress distance speech while a scene description is being read
+        guard !isAnalyzingScene && Date() > sceneSpeechUntil else { return }
         guard distance < 1.2 else {
             // Cleared — reset so we can announce again when approaching
             if lastSpokenThreshold < Float.greatestFiniteMagnitude {
@@ -421,9 +425,14 @@ struct DashboardView: View {
         }
     }
 
-    /// Speak important content (scene descriptions) using OpenAI TTS for natural voice.
+    /// Speak important content (scene descriptions) — interrupts distance warnings.
     private func speakNatural(_ text: String) {
-        Narrator.shared.speakWithOpenAI(text)
+        // Give scene speech a 15-second window free from distance interruptions
+        sceneSpeechUntil = Date().addingTimeInterval(15)
+        proximityRepeatTimer?.invalidate()
+        proximityRepeatTimer = nil
+        Narrator.shared.stop()
+        Narrator.shared.speak(text, rate: 0.45, volume: 0.9)
     }
 
     /// Returns a color from green (far) → yellow → red (close) based on proximity 0…1

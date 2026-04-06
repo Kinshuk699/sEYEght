@@ -17,3 +17,7 @@ xcuserdata/
 # CocoaPods / SPM
 Pods/
 .build/
+
+# Large binary files (downloaded at build time, too big for GitHub)
+Frameworks/
+kokoro-int8-en-v0_19/
