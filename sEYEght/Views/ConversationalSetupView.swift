@@ -24,6 +24,7 @@ struct ConversationalSetupView: View {
     @State private var statusText: String = "Setting up..."
     @State private var isPulsing = false
     @State private var navigateToDashboard = false
+    @State private var isListeningForWake = false
 
     enum SetupPhase: Int, CaseIterable {
         case welcome
@@ -35,7 +36,15 @@ struct ConversationalSetupView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // Camera feed when LiDAR is running, black otherwise
+            if lidarManager.isRunning {
+                ARCameraView(session: lidarManager.session)
+                    .ignoresSafeArea()
+                // Dim overlay so text stays readable
+                Color.black.opacity(0.45).ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
+            }
 
             VStack(spacing: 32) {
                 Spacer()
@@ -54,6 +63,16 @@ struct ConversationalSetupView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .readable(statusText)
+
+                // Live transcription shown during wake-word listening
+                if isListeningForWake {
+                    Text(speechManager.lastRecognizedText.isEmpty ? "Listening..." : speechManager.lastRecognizedText)
+                        .font(.system(size: 15))
+                        .foregroundColor(SeyeghtTheme.secondaryText)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                        .animation(.easeInOut(duration: 0.2), value: speechManager.lastRecognizedText)
+                }
 
                 Spacer()
             }
@@ -76,6 +95,12 @@ struct ConversationalSetupView: View {
 
         await phasePermissions()
         guard !Task.isCancelled else { return }
+
+        // Don't continue if mandatory permissions are missing
+        guard permissionsManager.cameraStatus && permissionsManager.locationStatus else {
+            statusText = "Waiting for permissions..."
+            return
+        }
 
         await phaseMountPhone()
         guard !Task.isCancelled else { return }
@@ -115,108 +140,188 @@ struct ConversationalSetupView: View {
         statusText = "Permissions"
 
         // Camera (mandatory)
-        await requestPermission(
+        await handlePermission(
             name: "Camera",
-            prompt: "First, I need access to your camera. This is how I see obstacles and describe your surroundings. You'll hear a system prompt now — please tap Allow.",
+            alreadyGranted: permissionsManager.cameraStatus,
+            notDetermined: permissionsManager.cameraNotDetermined,
+            firstTimePrompt: "First, I need access to your camera. This is how I see obstacles and describe your surroundings. You'll hear a system prompt now — please tap Allow.",
+            alreadyDeniedPrompt: "I need camera access, but it was previously denied. I'll open your Settings now — please turn on Camera for Seyeght, then come back.",
             request: { permissionsManager.requestCamera() },
             check: { permissionsManager.cameraStatus },
-            isMandatory: true,
             grantedMessage: "Perfect. Camera is ready.",
             deniedMessage: "I wasn't able to get camera access. Seyeght really needs the camera to keep you safe."
         )
         guard !Task.isCancelled else { return }
 
         // Location (mandatory)
-        await requestPermission(
+        await handlePermission(
             name: "Location",
-            prompt: "Next, I need your location. This helps me tell you where you are when you ask. You'll hear a system prompt — please tap Allow While Using App.",
+            alreadyGranted: permissionsManager.locationStatus,
+            notDetermined: permissionsManager.locationNotDetermined,
+            firstTimePrompt: "Next, I need your location. This helps me tell you where you are when you ask. You'll hear a system prompt — please tap Allow While Using App.",
+            alreadyDeniedPrompt: "I need location access, but it was previously denied. I'll open your Settings now — please turn on Location for Seyeght, then come back.",
             request: { permissionsManager.requestLocation() },
             check: { permissionsManager.locationStatus },
-            isMandatory: true,
             grantedMessage: "Got it. Location is active.",
             deniedMessage: "I wasn't able to get location access. Seyeght needs this to tell you where you are."
         )
         guard !Task.isCancelled else { return }
 
-        // Check mandatory permissions
+        // If mandatory permissions still denied, guide to Settings and wait
         if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
+            let missing = [
+                !permissionsManager.cameraStatus ? "Camera" : nil,
+                !permissionsManager.locationStatus ? "Location" : nil,
+            ].compactMap { $0 }.joined(separator: " and ")
+
             await Narrator.shared.speakAndWait(
-                "I can't work without the camera and location. You can grant these in your iPhone's Settings app under Seyeght. I'll check again when you come back."
+                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then come back to the app."
             )
-            return
+            guard !Task.isCancelled else { return }
+
+            await openSettings()
+
+            // Poll until they come back with permissions granted (or give up after 5 min)
+            for _ in 0..<600 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                permissionsManager.checkCurrentStatuses()
+                if permissionsManager.cameraStatus && permissionsManager.locationStatus {
+                    await Narrator.shared.speakAndWait("Thank you. Camera and location are ready. Let's continue.")
+                    break
+                }
+            }
+
+            // If still not granted after waiting, stop here
+            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
+                await Narrator.shared.speakAndWait(
+                    "I still can't access what I need. The app will try again next time you open it."
+                )
+                return
+            }
         }
 
         // Microphone (optional)
-        await requestPermission(
+        await handlePermission(
             name: "Microphone",
-            prompt: "I'd also like access to your microphone, so you can use voice commands. This is optional. You'll hear a prompt now.",
+            alreadyGranted: permissionsManager.microphoneStatus,
+            notDetermined: permissionsManager.microphoneNotDetermined,
+            firstTimePrompt: "I'd also like access to your microphone, so you can use voice commands. This is optional. You'll hear a prompt now.",
+            alreadyDeniedPrompt: nil, // Optional — skip if denied
             request: { permissionsManager.requestMicrophone() },
             check: { permissionsManager.microphoneStatus },
-            isMandatory: false,
             grantedMessage: "Microphone ready. You'll be able to talk to me.",
             deniedMessage: "No problem. Voice commands won't be available, but everything else works fine."
         )
         guard !Task.isCancelled else { return }
 
         // Speech Recognition (optional)
-        await requestPermission(
+        await handlePermission(
             name: "Speech Recognition",
-            prompt: "Last one — speech recognition. This helps me understand what you say. Again, optional.",
+            alreadyGranted: permissionsManager.speechStatus,
+            notDetermined: permissionsManager.speechNotDetermined,
+            firstTimePrompt: "Last one — speech recognition. This helps me understand what you say. Again, optional.",
+            alreadyDeniedPrompt: nil, // Optional — skip if denied
             request: { permissionsManager.requestSpeechRecognition() },
             check: { permissionsManager.speechStatus },
-            isMandatory: false,
             grantedMessage: "All set.",
             deniedMessage: "That's okay. I'll skip voice commands."
         )
     }
 
-    private func requestPermission(
+    /// Handles three permission states: already granted, not yet asked, previously denied.
+    private func handlePermission(
         name: String,
-        prompt: String,
+        alreadyGranted: Bool,
+        notDetermined: Bool,
+        firstTimePrompt: String,
+        alreadyDeniedPrompt: String?,
         request: @escaping () -> Void,
         check: @escaping () -> Bool,
-        isMandatory: Bool,
         grantedMessage: String,
         deniedMessage: String
     ) async {
         statusText = name
 
-        await Narrator.shared.speakAndWait(prompt)
-        guard !Task.isCancelled else { return }
-
-        // Trigger the system permission dialog
-        request()
-
-        // Poll for result (system dialog is async — wait up to 30s)
-        var granted = false
-        for _ in 0..<60 {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            permissionsManager.checkCurrentStatuses()
-            if check() {
-                granted = true
-                break
-            }
+        // Already granted — just acknowledge and move on
+        if alreadyGranted {
+            await Narrator.shared.speakAndWait("\(name) is already enabled. Great.")
+            return
         }
 
-        if granted {
-            await Narrator.shared.speakAndWait(grantedMessage)
-        } else {
-            await Narrator.shared.speakAndWait(deniedMessage)
-            // Retry once for mandatory permissions
-            if isMandatory {
-                await Narrator.shared.speakAndWait("Let me try one more time.")
-                request()
-                for _ in 0..<30 {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    permissionsManager.checkCurrentStatuses()
-                    if check() {
-                        await Narrator.shared.speakAndWait(grantedMessage)
-                        return
-                    }
+        // Never asked — show the system dialog
+        if notDetermined {
+            await Narrator.shared.speakAndWait(firstTimePrompt)
+            guard !Task.isCancelled else { return }
+
+            request()
+
+            // Poll — but also detect DENIAL quickly (status changes from notDetermined)
+            var granted = false
+            for _ in 0..<40 { // 20 seconds max
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                permissionsManager.checkCurrentStatuses()
+                if check() {
+                    granted = true
+                    break
                 }
-                await Narrator.shared.speakAndWait("Still not granted. You can enable \(name) later in your iPhone Settings under Seyeght.")
+                // If no longer notDetermined AND not granted → user denied
+                // (Check the raw status to detect denial immediately)
+                if !isStillNotDetermined(name: name) && !check() {
+                    break // User explicitly denied — don't keep polling
+                }
+            }
+
+            if granted {
+                await Narrator.shared.speakAndWait(grantedMessage)
+            } else {
+                await Narrator.shared.speakAndWait(deniedMessage)
+                // For mandatory: the caller (phasePermissions) handles Settings redirect
+            }
+            return
+        }
+
+        // Previously denied — can't show dialog again
+        if let deniedPrompt = alreadyDeniedPrompt {
+            await Narrator.shared.speakAndWait(deniedPrompt)
+            guard !Task.isCancelled else { return }
+
+            await openSettings()
+
+            // Wait for user to come back with permission enabled (up to 2 min)
+            for _ in 0..<240 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                permissionsManager.checkCurrentStatuses()
+                if check() {
+                    await Narrator.shared.speakAndWait(grantedMessage)
+                    return
+                }
+            }
+            await Narrator.shared.speakAndWait(deniedMessage)
+        } else {
+            // Optional permission, previously denied — just skip
+            await Narrator.shared.speakAndWait("\(name) was previously denied. You can enable it later in Settings if you'd like.")
+        }
+    }
+
+    /// Check if a permission is still in the not-determined state
+    private func isStillNotDetermined(name: String) -> Bool {
+        switch name {
+        case "Camera": return permissionsManager.cameraNotDetermined
+        case "Location": return permissionsManager.locationNotDetermined
+        case "Microphone": return permissionsManager.microphoneNotDetermined
+        case "Speech Recognition": return permissionsManager.speechNotDetermined
+        default: return false
+        }
+    }
+
+    /// Open the iOS Settings page for this app
+    private func openSettings() async {
+        await MainActor.run {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
             }
         }
     }
@@ -372,6 +477,12 @@ struct ConversationalSetupView: View {
         await Narrator.shared.speakAndWait("You can talk to me too. Let's practice. Say Hey Sight now.")
         guard !Task.isCancelled else { return }
 
+        // Let audio session fully settle before starting the mic
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+
+        isListeningForWake = true // Show live transcription on screen
+
         // Listen for wake phrase using a continuation
         let heard = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             var resumed = false
@@ -382,14 +493,15 @@ struct ConversationalSetupView: View {
             }
             speechManager.startListening()
 
-            // Timeout after 10 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            // Timeout after 12 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
                 guard !resumed else { return }
                 resumed = true
                 cont.resume(returning: false)
             }
         }
 
+        isListeningForWake = false
         speechManager.onWakeWordDetected = nil
         speechManager.stopListening()
 

@@ -22,7 +22,8 @@ final class VisionManager {
     var onSpeechRequest: ((String) -> Void)?
 
     private var apiKey: String {
-        Bundle.main.infoDictionary?["OPENAI_API_KEY"] as? String ?? ""
+        // Read from Secrets.swift (generated from Config.xcconfig, excluded from git)
+        return SeyeghtSecrets.openAIKey
     }
 
     /// Speech rate set from user settings

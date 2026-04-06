@@ -20,23 +20,64 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
     private let selectedVoice: AVSpeechSynthesisVoice?
 
     private override init() {
-        // Find an enhanced voice for the device locale
-        let locale = Locale.current.language.languageCode?.identifier ?? "en"
-        let voices = AVSpeechSynthesisVoice.speechVoices()
-        let enhanced = voices.first(where: {
-            $0.language.hasPrefix(locale) && $0.quality == .enhanced
-        })
-        let premium = voices.first(where: {
-            $0.language.hasPrefix(locale) && $0.quality == .premium
-        })
-        selectedVoice = premium ?? enhanced
+        selectedVoice = Self.pickBestVoice()
         super.init()
         synth.delegate = self
         if let voice = selectedVoice {
-            print("[Narrator] Using voice: \(voice.name) (\(voice.quality.rawValue))")
+            print("[Narrator] Using voice: \(voice.name) id=\(voice.identifier) quality=\(voice.quality.rawValue)")
         } else {
-            print("[Narrator] No enhanced voice found, using system default")
+            print("[Narrator] ⚠️ No good voice found — using system default (robotic)")
         }
+    }
+
+    private static func pickBestVoice() -> AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+
+        // Log all English voices for debugging
+        let enVoices = voices.filter { $0.language.hasPrefix("en") }
+        print("[Narrator] Available English voices (\(enVoices.count)):")
+        for v in enVoices.sorted(by: { $0.quality.rawValue > $1.quality.rawValue }) {
+            print("  - \(v.name) | \(v.language) | quality=\(v.quality.rawValue) | id=\(v.identifier)")
+        }
+
+        // 1. Premium (requires download — best quality)
+        if let v = enVoices.first(where: { $0.quality == .premium }) {
+            print("[Narrator] ✅ Found premium voice: \(v.name)")
+            return v
+        }
+
+        // 2. Enhanced by name preference (requires download)
+        let preferred = ["Ava", "Samantha", "Allison", "Zoe", "Susan", "Victoria"]
+        for name in preferred {
+            if let v = enVoices.first(where: { $0.quality == .enhanced && $0.name.contains(name) }) {
+                print("[Narrator] ✅ Found enhanced voice: \(v.name)")
+                return v
+            }
+        }
+
+        // 3. Any enhanced
+        if let v = enVoices.first(where: { $0.quality == .enhanced }) {
+            print("[Narrator] ✅ Found enhanced voice: \(v.name)")
+            return v
+        }
+
+        // 4. Best compact voices — these are always available, no download needed
+        // "Samantha" is the classic Siri voice and sounds less robotic than others
+        let compactPreferred = ["Samantha", "Ava", "Allison", "Zoe", "Nicky", "Karen"]
+        for name in compactPreferred {
+            if let v = enVoices.first(where: { $0.name.contains(name) }) {
+                print("[Narrator] Using compact voice: \(v.name)")
+                return v
+            }
+        }
+
+        // 5. Any English voice at all
+        if let v = enVoices.first {
+            print("[Narrator] Falling back to: \(v.name)")
+            return v
+        }
+
+        return nil
     }
 
     /// Speak text, stopping any current speech first.

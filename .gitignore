@@ -1,6 +1,8 @@
 # Environment secrets
 .env
 Config.xcconfig
+Secrets.swift
+sEYEght/Secrets.swift
 
 # Xcode
 build/

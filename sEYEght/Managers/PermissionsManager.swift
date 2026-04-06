@@ -21,6 +21,20 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
     var microphoneStatus: Bool = false
     var speechStatus: Bool = false
 
+    /// Whether the user has never been asked (true = we can show the system dialog)
+    var cameraNotDetermined: Bool {
+        AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined
+    }
+    var locationNotDetermined: Bool {
+        locationManager.authorizationStatus == .notDetermined
+    }
+    var microphoneNotDetermined: Bool {
+        AVAudioApplication.shared.recordPermission == .undetermined
+    }
+    var speechNotDetermined: Bool {
+        SFSpeechRecognizer.authorizationStatus() == .notDetermined
+    }
+
     override init() {
         super.init()
         locationManager.delegate = self
