@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
@@ -139,7 +140,7 @@ struct DashboardView: View {
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "Double-tap to describe what's ahead")
+                    Text(isAnalyzingScene ? "Describing scene…" : "Double-tap or shake to describe")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -147,7 +148,7 @@ struct DashboardView: View {
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
                 }
-                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Double-tap anywhere to describe scene")
+                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Double-tap or shake phone to describe scene")
 
                 Spacer()
 
@@ -206,10 +207,13 @@ struct DashboardView: View {
                 visionManager.onSpeechRequest = { text in speakNatural(text) }
                 navigationManager.onSpeechRequest = { text in speak(text) }
 
-                // Spoken welcome so blind users know the app is working
+                // Start shake detection — shaking is easier than tapping for chest-mounted phone
+                ShakeDetector.shared.start()
+
+                // Spoken welcome so blind users know the app is working (OpenAI TTS for consistency)
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Seyeght ready. LiDAR scanning. Double-tap the screen to describe what's ahead. Triple-tap for emergency mode.")
+                speakNatural("Seyeght ready. LiDAR scanning. Double-tap the screen or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
             }
         }
         .onDisappear {
@@ -218,6 +222,10 @@ struct DashboardView: View {
             hapticsManager.stopTone()
             proximityRepeatTimer?.invalidate()
             proximityRepeatTimer = nil
+            ShakeDetector.shared.stop()
+        }
+        .onReceive(ShakeDetector.shared.shakeDetected) { _ in
+            handleSceneTap()
         }
         .onChange(of: lidarManager.closestDistance) { _, distance in
             hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)

@@ -174,7 +174,7 @@ struct ConversationalSetupView: View {
                 !permissionsManager.locationStatus ? "Location" : nil,
             ].compactMap { $0 }.joined(separator: " and ")
 
-            await Narrator.shared.speakAndWait(
+            await Narrator.shared.speakWithOpenAIAndWait(
                 "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then come back to the app."
             )
             guard !Task.isCancelled else { return }
@@ -187,13 +187,13 @@ struct ConversationalSetupView: View {
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
                 if permissionsManager.cameraStatus && permissionsManager.locationStatus {
-                    await Narrator.shared.speakAndWait("Thank you. All permissions are ready. Let's continue.")
+                    await Narrator.shared.speakWithOpenAIAndWait("Thank you. All permissions are ready. Let's continue.")
                     break
                 }
             }
 
             if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
-                await Narrator.shared.speakAndWait(
+                await Narrator.shared.speakWithOpenAIAndWait(
                     "I still can't access what I need. The app will try again next time you open it."
                 )
                 return
@@ -217,13 +217,13 @@ struct ConversationalSetupView: View {
 
         // Already granted — just acknowledge and move on
         if alreadyGranted {
-            await Narrator.shared.speakAndWait("\(name) is already enabled. Great.")
+            await Narrator.shared.speakWithOpenAIAndWait("\(name) is already enabled. Great.")
             return
         }
 
         // Never asked — show the system dialog
         if notDetermined {
-            await Narrator.shared.speakAndWait(firstTimePrompt)
+            await Narrator.shared.speakWithOpenAIAndWait(firstTimePrompt)
             guard !Task.isCancelled else { return }
 
             request()
@@ -246,9 +246,9 @@ struct ConversationalSetupView: View {
             }
 
             if granted {
-                await Narrator.shared.speakAndWait(grantedMessage)
+                await Narrator.shared.speakWithOpenAIAndWait(grantedMessage)
             } else {
-                await Narrator.shared.speakAndWait(deniedMessage)
+                await Narrator.shared.speakWithOpenAIAndWait(deniedMessage)
                 // For mandatory: the caller (phasePermissions) handles Settings redirect
             }
             return
@@ -256,7 +256,7 @@ struct ConversationalSetupView: View {
 
         // Previously denied — can't show dialog again
         if let deniedPrompt = alreadyDeniedPrompt {
-            await Narrator.shared.speakAndWait(deniedPrompt)
+            await Narrator.shared.speakWithOpenAIAndWait(deniedPrompt)
             guard !Task.isCancelled else { return }
 
             await openSettings()
@@ -267,14 +267,14 @@ struct ConversationalSetupView: View {
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
                 if check() {
-                    await Narrator.shared.speakAndWait(grantedMessage)
+                    await Narrator.shared.speakWithOpenAIAndWait(grantedMessage)
                     return
                 }
             }
-            await Narrator.shared.speakAndWait(deniedMessage)
+            await Narrator.shared.speakWithOpenAIAndWait(deniedMessage)
         } else {
             // Optional permission, previously denied — just skip
-            await Narrator.shared.speakAndWait("\(name) was previously denied. You can enable it later in Settings if you'd like.")
+            await Narrator.shared.speakWithOpenAIAndWait("\(name) was previously denied. You can enable it later in Settings if you'd like.")
         }
     }
 
@@ -330,21 +330,21 @@ struct ConversationalSetupView: View {
                 }
 
                 if attempt < 5 {
-                    await Narrator.shared.speakAndWait("Hmm, I'm not seeing clearly yet. Try adjusting the phone so the camera faces straight ahead.")
+                    await Narrator.shared.speakWithOpenAIAndWait("Hmm, I'm not seeing clearly yet. Try adjusting the phone so the camera faces straight ahead.")
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
 
             if verified {
-                await Narrator.shared.speakAndWait("I can see the space in front of you. Nice work.")
+                await Narrator.shared.speakWithOpenAIAndWait("I can see the space in front of you. Nice work.")
             } else {
-                await Narrator.shared.speakAndWait("Let's move on — you can adjust later. I'll show you what the app does.")
+                await Narrator.shared.speakWithOpenAIAndWait("Let's move on — you can adjust later. I'll show you what the app does.")
             }
 
             lidarManager.stop()
         } else {
             try? await Task.sleep(for: .seconds(3))
-            await Narrator.shared.speakAndWait("Since camera isn't available yet, we'll skip the check. You can adjust the position later.")
+            await Narrator.shared.speakWithOpenAIAndWait("Since camera isn't available yet, we'll skip the check. You can adjust the position later.")
         }
     }
 
@@ -387,7 +387,7 @@ struct ConversationalSetupView: View {
         hapticsManager.stopTone()
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("That means something is about 3 meters away — no rush.")
+        await Narrator.shared.speakWithOpenAIAndWait("That means something is about 3 meters away — no rush.")
         guard !Task.isCancelled else { return }
 
         // Demo 2: Fast beep (~0.5m)
@@ -396,7 +396,7 @@ struct ConversationalSetupView: View {
         hapticsManager.stopTone()
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("That means something is very close — about half a meter. Slow down.")
+        await Narrator.shared.speakWithOpenAIAndWait("That means something is very close — about half a meter. Slow down.")
         guard !Task.isCancelled else { return }
 
         // Demo 3: Continuous tone (<0.3m)
@@ -405,11 +405,11 @@ struct ConversationalSetupView: View {
         hapticsManager.stopTone()
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("And that means stop — obstacle right in front of you.")
+        await Narrator.shared.speakWithOpenAIAndWait("And that means stop — obstacle right in front of you.")
     }
 
     private func demoHaptics() async {
-        await Narrator.shared.speakAndWait("You'll also feel vibrations. Let me show you.")
+        await Narrator.shared.speakWithOpenAIAndWait("You'll also feel vibrations. Let me show you.")
         guard !Task.isCancelled else { return }
 
         // Medium impact
@@ -419,7 +419,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("A pulse like that means I'm reading something to you.")
+        await Narrator.shared.speakWithOpenAIAndWait("A pulse like that means I'm reading something to you.")
         guard !Task.isCancelled else { return }
 
         // Heavy impact
@@ -429,7 +429,7 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("A strong pulse like that means you've activated a button.")
+        await Narrator.shared.speakWithOpenAIAndWait("A strong pulse like that means you've activated a button.")
         guard !Task.isCancelled else { return }
 
         // Warning (notification)
@@ -439,11 +439,11 @@ struct ConversationalSetupView: View {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("And that urgent feeling is for emergencies.")
+        await Narrator.shared.speakWithOpenAIAndWait("And that urgent feeling is for emergencies.")
     }
 
     private func demoCameraVision() async {
-        await Narrator.shared.speakAndWait(
+        await Narrator.shared.speakWithOpenAIAndWait(
             "Let's do a quick test. I'm going to look through your camera right now and describe what I see."
         )
         guard !Task.isCancelled else { return }
@@ -477,11 +477,11 @@ struct ConversationalSetupView: View {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
 
-            await Narrator.shared.speakAndWait(
+            await Narrator.shared.speakWithOpenAIAndWait(
                 "That's what you'll hear when you double-tap the screen during navigation."
             )
         } else {
-            await Narrator.shared.speakAndWait(
+            await Narrator.shared.speakWithOpenAIAndWait(
                 "I couldn't describe the scene this time — that can happen on first try. Don't worry, it will work during navigation. Just double-tap the screen."
             )
         }

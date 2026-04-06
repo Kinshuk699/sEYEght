@@ -127,16 +127,9 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
 
     private func speakInstruction(_ text: String) {
         guard !text.isEmpty else { return }
-
-        AudioSessionManager.shared.beginSpeaking()
         print("[NavigationManager] 🔊 Speaking: \(text)")
-
         if let onSpeechRequest = onSpeechRequest {
             onSpeechRequest(text)
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(text.count) * 0.06) {
-            AudioSessionManager.shared.endSpeaking()
         }
     }
 
