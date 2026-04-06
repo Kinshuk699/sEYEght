@@ -39,6 +39,10 @@ struct sEYEghtApp: App {
             .environment(subscriptionManager)
             .preferredColorScheme(.dark)
             .onAppear {
+                // Immediate haptic so blind users know the app launched
+                let startupHaptic = UINotificationFeedbackGenerator()
+                startupHaptic.notificationOccurred(.success)
+
                 // Configure audio session early so speech works on all screens including onboarding
                 do {
                     let session = AVAudioSession.sharedInstance()

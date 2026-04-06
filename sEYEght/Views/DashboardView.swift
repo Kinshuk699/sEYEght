@@ -211,6 +211,10 @@ struct DashboardView: View {
             handleSceneTap()
         }
         .onAppear {
+            // Immediate haptic so blind user knows the screen loaded
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+
             appState.hasCompletedOnboarding = true
 
             // Sync stored settings to live managers
@@ -250,7 +254,7 @@ struct DashboardView: View {
             hapticsManager.stopTone()
         }
         .onChange(of: lidarManager.closestDistance) { _, distance in
-            hapticsManager.updateForDistance(distance)
+            hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
             speakDistanceIfNeeded(distance)
         }
         .navigationBarHidden(true)
@@ -340,11 +344,22 @@ struct DashboardView: View {
         lastSpokenThreshold = threshold
         lastDistanceSpeechTime = Date()
 
+        // Directional context from LiDAR
+        let direction: String
+        let x = lidarManager.closestNormalizedX
+        if x < 0.35 {
+            direction = "to your left"
+        } else if x > 0.65 {
+            direction = "to your right"
+        } else {
+            direction = "ahead"
+        }
+
         let distanceText: String
         switch threshold {
-        case 0.3: distanceText = "Very close. Less than 1 foot."
-        case 0.5: distanceText = "Obstacle. About 2 feet ahead."
-        case 1.0: distanceText = "Object ahead. About 3 feet."
+        case 0.3: distanceText = "Very close \(direction). Less than 1 foot."
+        case 0.5: distanceText = "Obstacle \(direction). About 2 feet."
+        case 1.0: distanceText = "Object \(direction). About 3 feet."
         default: return
         }
 
@@ -367,8 +382,18 @@ struct DashboardView: View {
         }
     }
 
-    /// Triple-tap emergency: speak location loudly + offer to call emergency services
+    /// Triple-tap emergency: speak location loudly. Triple-tap again to exit.
     private func handleEmergencyTripleTap() {
+        if isEmergencyActive {
+            // Triple-tap again to EXIT emergency mode
+            isEmergencyActive = false
+            let exitGen = UINotificationFeedbackGenerator()
+            exitGen.notificationOccurred(.success)
+            speak("Emergency mode ended. Resuming normal navigation.", priority: true)
+            print("[DashboardView] 🚨 Emergency mode deactivated by user")
+            return
+        }
+
         isEmergencyActive = true
 
         // Strong haptic burst
@@ -376,19 +401,25 @@ struct DashboardView: View {
         generator.notificationOccurred(.warning)
 
         // Stop ALL current speech and announce emergency mode
-        speak("Emergency mode activated. Your location is being announced.", priority: true)
+        speak("Emergency mode activated. Your location is being announced. Triple-tap again to exit.", priority: true)
 
         // Speak current location after the emergency message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [self] in
+            guard isEmergencyActive else { return }
             navigationManager.speakCurrentLocation()
         }
 
-        // Clear emergency flag after 8 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            isEmergencyActive = false
+        // Repeat location every 30 seconds while emergency mode is active
+        func repeatLocation(after delay: TimeInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+                guard isEmergencyActive else { return }
+                navigationManager.speakCurrentLocation()
+                repeatLocation(after: 30.0)
+            }
         }
+        repeatLocation(after: 34.0)
 
-        print("[DashboardView] 🚨 Emergency triple-tap activated")
+        print("[DashboardView] 🚨 Emergency triple-tap activated — persists until dismissed")
     }
 
     // MARK: - Centralized Speech

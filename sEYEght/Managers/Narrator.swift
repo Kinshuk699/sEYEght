@@ -17,7 +17,13 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
     private var continuation: CheckedContinuation<Void, Never>?
 
     /// Best available voice — prefers enhanced/premium in user's locale
-    private let selectedVoice: AVSpeechSynthesisVoice?
+    private var selectedVoice: AVSpeechSynthesisVoice?
+
+    /// Whether we're using a high-quality voice (enhanced or premium)
+    var hasHighQualityVoice: Bool {
+        guard let voice = selectedVoice else { return false }
+        return voice.quality == .enhanced || voice.quality == .premium
+    }
 
     private override init() {
         selectedVoice = Self.pickBestVoice()
@@ -27,6 +33,14 @@ final class Narrator: NSObject, AVSpeechSynthesizerDelegate {
             print("[Narrator] Using voice: \(voice.name) id=\(voice.identifier) quality=\(voice.quality.rawValue)")
         } else {
             print("[Narrator] ⚠️ No good voice found — using system default (robotic)")
+        }
+    }
+
+    /// Re-select the best available voice (call after user downloads an enhanced voice)
+    func refreshVoice() {
+        selectedVoice = Self.pickBestVoice()
+        if let voice = selectedVoice {
+            print("[Narrator] \u{1f504} Voice refreshed: \(voice.name) quality=\(voice.quality.rawValue)")
         }
     }
 

@@ -41,6 +41,9 @@ final class HapticsManager {
     private var beepTimer: Double = 0.0
     private var beepActive: Bool = true
 
+    /// Stereo panning: -1.0 = full left, 0.0 = center, 1.0 = full right
+    private var tonePan: Float = 0.0
+
     init() {
         // Defer engine setup — CoreHaptics needs the app to be fully active
     }
@@ -81,6 +84,11 @@ final class HapticsManager {
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let freq = self.toneFrequency
             let isEnabled = self.audioToneEnabled
+            let pan = self.tonePan  // -1 = left, 0 = center, +1 = right
+
+            // Stereo gains: equal-power panning
+            let leftGain = self.audioToneVolume * min(1.0, 1.0 - pan)
+            let rightGain = self.audioToneVolume * min(1.0, 1.0 + pan)
 
             for frame in 0..<Int(frameCount) {
                 // Beep timing
@@ -91,22 +99,24 @@ final class HapticsManager {
                 }
                 let inBeep = self.beepTimer < self.beepOn
 
-                var sample: Float = 0.0
+                var rawSample: Float = 0.0
                 if freq > 0 && isEnabled && inBeep {
                     self.tonePhase += 2.0 * .pi * freq / self.sampleRate
                     if self.tonePhase > 2.0 * .pi { self.tonePhase -= 2.0 * .pi }
-                    sample = Float(sin(self.tonePhase)) * self.audioToneVolume
+                    rawSample = Float(sin(self.tonePhase))
                 }
 
-                for buffer in ablPointer {
+                // Write stereo: channel 0 = left, channel 1 = right
+                for (index, buffer) in ablPointer.enumerated() {
                     let buf = buffer.mData?.assumingMemoryBound(to: Float.self)
-                    buf?[frame] = sample
+                    let gain = index == 0 ? leftGain : rightGain
+                    buf?[frame] = rawSample * gain
                 }
             }
             return noErr
         }
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
         engine.attach(sourceNode)
         engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
 
@@ -124,9 +134,13 @@ final class HapticsManager {
     private var lastHapticTime: Date = .distantPast
     private let hapticInterval: TimeInterval = 0.2  // 5 per second
 
-    /// Update haptic feedback AND audio tone based on obstacle distance.
-    func updateForDistance(_ distance: Float) {
+    /// Update haptic feedback AND audio tone based on obstacle distance and direction.
+    /// `normalizedX`: 0.0 = far left, 0.5 = center, 1.0 = far right
+    func updateForDistance(_ distance: Float, normalizedX: Float = 0.5) {
         let withinRange = distance < Float(maxRange)
+
+        // Stereo panning: convert 0..1 → -1..+1
+        tonePan = (normalizedX * 2.0) - 1.0
 
         // Audio tone: map distance to frequency and beep rate (this is cheap, no throttle needed)
         if withinRange {

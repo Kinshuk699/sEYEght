@@ -120,8 +120,42 @@ final class VisionManager {
                 self?.isProcessing = false
 
                 if let error = error {
-                    print("[VisionManager] ❌ API error: \(error.localizedDescription)")
-                    self?.speakText("Sorry, I couldn't analyze the scene right now.")
+                    let nsError = error as NSError
+                    if nsError.domain == NSURLErrorDomain {
+                        switch nsError.code {
+                        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
+                            print("[VisionManager] ❌ No internet connection")
+                            self?.speakText("No internet connection. I need internet to describe your surroundings.")
+                        case NSURLErrorTimedOut:
+                            print("[VisionManager] ❌ Request timed out")
+                            self?.speakText("The request timed out. Try again.")
+                        default:
+                            print("[VisionManager] ❌ Network error: \(error.localizedDescription)")
+                            self?.speakText("Network error. Check your connection and try again.")
+                        }
+                    } else {
+                        print("[VisionManager] ❌ API error: \(error.localizedDescription)")
+                        self?.speakText("Sorry, I couldn't analyze the scene right now.")
+                    }
+                    return
+                }
+
+                // Check HTTP status for API-specific errors
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                    print("[VisionManager] ❌ HTTP \(httpResponse.statusCode)")
+                    if let data = data, let raw = String(data: data, encoding: .utf8) {
+                        print("[VisionManager] Response body: \(raw.prefix(300))")
+                    }
+                    switch httpResponse.statusCode {
+                    case 401:
+                        self?.speakText("My vision system needs reconfiguration. The API key may be invalid.")
+                    case 429:
+                        self?.speakText("Too many requests right now. Please wait a moment and try again.")
+                    case 500...599:
+                        self?.speakText("The vision service is temporarily down. Try again in a moment.")
+                    default:
+                        self?.speakText("Sorry, something went wrong analyzing the scene.")
+                    }
                     return
                 }
 

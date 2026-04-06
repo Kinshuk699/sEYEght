@@ -93,6 +93,10 @@ struct ConversationalSetupView: View {
         await phaseWelcome()
         guard !Task.isCancelled else { return }
 
+        // Guide user to download better voice if using basic compact voice
+        await phaseVoiceCheck()
+        guard !Task.isCancelled else { return }
+
         await phasePermissions()
         guard !Task.isCancelled else { return }
 
@@ -130,6 +134,21 @@ struct ConversationalSetupView: View {
 
         await Narrator.shared.speakAndWait(
             "I'll need a few permissions to work. I'll ask for each one now and explain why."
+        )
+    }
+
+    // MARK: - Phase 1b: Voice Quality Check
+
+    private func phaseVoiceCheck() async {
+        if Narrator.shared.hasHighQualityVoice {
+            // Already has good voice — skip silently
+            return
+        }
+
+        statusText = "Voice Quality"
+
+        await Narrator.shared.speakAndWait(
+            "Quick tip. My voice might sound a bit robotic. You can improve it later by going to your iPhone Settings, Accessibility, Spoken Content, Voices, English, and downloading Ava Enhanced. But that's optional — let's keep going."
         )
     }
 
