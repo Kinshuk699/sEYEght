@@ -79,16 +79,17 @@ final class VisionManager {
         let base64Image = imageData.base64EncodedString()
 
         guard !apiKey.isEmpty && apiKey != "sk-your-key-here" else {
-            print("[VisionManager] ❌ No valid API key configured. Key length: \(apiKey.count), prefix: \(String(apiKey.prefix(10)))")
+            print("[VisionManager] ❌ No valid API key configured")
             isProcessing = false
             speakText("I'm having trouble with my vision system. Please try again.")
             return
         }
 
-        print("[VisionManager] 🔑 API key present (\(apiKey.count) chars, starts with \(String(apiKey.prefix(10)))...)")
+        print("[VisionManager] API key configured (\(apiKey.count) chars)")
 
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
+        request.timeoutInterval = 15.0
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -225,13 +225,17 @@ struct DashboardView: View {
             }
 
             // Defer hardware init slightly so the app is fully active
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
                 hapticsManager.ensureEngine()
                 lidarManager.start()
                 speechManager.onWakeWordDetected = {
                     // Spoken confirmation that voice was heard, then describe scene
                     speak("Heard you.", priority: true)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1))
+                        guard !Task.isCancelled else { return }
                         handleSceneTap()
                     }
                 }
@@ -243,15 +247,17 @@ struct DashboardView: View {
                 navigationManager.onSpeechRequest = { text in speak(text) }
 
                 // Spoken welcome so blind users know the app is working
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    speak("Seyeght ready. LiDAR scanning. Tap anywhere, say Hey Sight, or just say what is near me. You can also say Where am I.")
-                }
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                speak("Seyeght ready. LiDAR scanning. Tap anywhere, say Hey Sight, or just say what is near me. You can also say Where am I.")
             }
         }
         .onDisappear {
             // Only stop the tone, NOT LiDAR or speech — those should keep running
             // when user is in Settings/Subscription screens
             hapticsManager.stopTone()
+            proximityRepeatTimer?.invalidate()
+            proximityRepeatTimer = nil
         }
         .onChange(of: lidarManager.closestDistance) { _, distance in
             hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
@@ -410,14 +416,13 @@ struct DashboardView: View {
         }
 
         // Repeat location every 30 seconds while emergency mode is active
-        func repeatLocation(after delay: TimeInterval) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
-                guard isEmergencyActive else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(34))
+            while !Task.isCancelled && isEmergencyActive {
                 navigationManager.speakCurrentLocation()
-                repeatLocation(after: 30.0)
+                try? await Task.sleep(for: .seconds(30))
             }
         }
-        repeatLocation(after: 34.0)
 
         print("[DashboardView] 🚨 Emergency triple-tap activated — persists until dismissed")
     }

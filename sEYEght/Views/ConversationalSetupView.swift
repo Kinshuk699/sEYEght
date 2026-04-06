@@ -83,6 +83,7 @@ struct ConversationalSetupView: View {
         }
         .task {
             isPulsing = true
+            defer { Narrator.shared.stop() }
             await runConversation()
         }
     }
@@ -186,41 +187,6 @@ struct ConversationalSetupView: View {
         )
         guard !Task.isCancelled else { return }
 
-        // If mandatory permissions still denied, guide to Settings and wait
-        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
-            let missing = [
-                !permissionsManager.cameraStatus ? "Camera" : nil,
-                !permissionsManager.locationStatus ? "Location" : nil,
-                !permissionsManager.microphoneStatus ? "Microphone" : nil,
-                !permissionsManager.speechStatus ? "Speech Recognition" : nil,
-            ].compactMap { $0 }.joined(separator: " and ")
-
-            await Narrator.shared.speakAndWait(
-                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then come back to the app."
-            )
-            guard !Task.isCancelled else { return }
-
-            await openSettings()
-
-            // Poll until they come back with permissions granted (or give up after 5 min)
-            for _ in 0..<600 {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                permissionsManager.checkCurrentStatuses()
-                if permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus {
-                    await Narrator.shared.speakAndWait("Thank you. Camera and location are ready. Let's continue.")
-                    break
-                }
-            }
-
-            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
-                await Narrator.shared.speakAndWait(
-                    "I still can't access what I need. The app will try again next time you open it."
-                )
-                return
-            }
-        }
-
         // Microphone (mandatory — required for voice commands)
         await handlePermission(
             name: "Microphone",
@@ -247,6 +213,42 @@ struct ConversationalSetupView: View {
             grantedMessage: "All set. I can now understand your voice commands.",
             deniedMessage: "I wasn't able to get speech recognition access. Voice commands won't work without it."
         )
+        guard !Task.isCancelled else { return }
+
+        // After all 4 have been individually requested, check if any were denied
+        if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
+            let missing = [
+                !permissionsManager.cameraStatus ? "Camera" : nil,
+                !permissionsManager.locationStatus ? "Location" : nil,
+                !permissionsManager.microphoneStatus ? "Microphone" : nil,
+                !permissionsManager.speechStatus ? "Speech Recognition" : nil,
+            ].compactMap { $0 }.joined(separator: " and ")
+
+            await Narrator.shared.speakAndWait(
+                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then come back to the app."
+            )
+            guard !Task.isCancelled else { return }
+
+            await openSettings()
+
+            // Poll until they come back with permissions granted (or give up after 3 min)
+            for _ in 0..<360 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                permissionsManager.checkCurrentStatuses()
+                if permissionsManager.cameraStatus && permissionsManager.locationStatus && permissionsManager.microphoneStatus && permissionsManager.speechStatus {
+                    await Narrator.shared.speakAndWait("Thank you. All permissions are ready. Let's continue.")
+                    break
+                }
+            }
+
+            if !permissionsManager.cameraStatus || !permissionsManager.locationStatus || !permissionsManager.microphoneStatus || !permissionsManager.speechStatus {
+                await Narrator.shared.speakAndWait(
+                    "I still can't access what I need. The app will try again next time you open it."
+                )
+                return
+            }
+        }
     }
 
     /// Handles three permission states: already granted, not yet asked, previously denied.

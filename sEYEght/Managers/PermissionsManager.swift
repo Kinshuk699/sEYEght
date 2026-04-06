@@ -42,6 +42,10 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
         print("[PermissionsManager] Initialized, checking current statuses")
     }
 
+    deinit {
+        locationManager.delegate = nil
+    }
+
     func checkCurrentStatuses() {
         cameraStatus = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         let locStatus = locationManager.authorizationStatus
