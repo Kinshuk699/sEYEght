@@ -47,7 +47,8 @@ struct ReadableModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onTapGesture {
-                let generator = UIImpactFeedbackGenerator(style: .light)
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.prepare()
                 generator.impactOccurred()
                 Narrator.shared.speak(label)
             }

@@ -42,7 +42,8 @@ struct HapticButton: View {
             }
             .onTapGesture(count: 1) {
                 guard isEnabled else { return }
-                let generator = UIImpactFeedbackGenerator(style: .light)
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.prepare()
                 generator.impactOccurred()
                 Narrator.shared.speak(title)
                 print("[HapticButton] Single-tap read: \(title)")

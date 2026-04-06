@@ -47,6 +47,7 @@ struct OnboardingContainerView: View {
                 EmptyView()
             }
         }
+        .id(currentStep)
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToPermissions) {
             PermissionsView()
