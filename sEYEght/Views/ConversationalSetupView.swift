@@ -118,6 +118,12 @@ struct ConversationalSetupView: View {
     // MARK: - Conversation State Machine
 
     private func runConversation() async {
+        // Safety: if setup already done, don't re-run
+        guard !appState.hasCompletedOnboarding else {
+            print("[Setup] Already completed onboarding, skipping conversation")
+            return
+        }
+
         // Phase 1: Welcome + Mode Choice
         await phaseWelcomeAndModeChoice()
         guard !Task.isCancelled else { return }

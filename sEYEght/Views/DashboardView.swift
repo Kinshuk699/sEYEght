@@ -24,7 +24,6 @@ struct DashboardView: View {
     @State private var navigateToSettings = false
     @State private var navigateToSubscription = false
     @State private var isAnalyzingScene = false
-    @State private var hasInitializedHardware = false
 
     /// Tracks the last spoken distance threshold to avoid repeating
     @State private var lastSpokenThreshold: Float = Float.greatestFiniteMagnitude
@@ -188,11 +187,21 @@ struct DashboardView: View {
             handleEmergencyTripleTap()
         }
         .onAppear {
+            // Guard: only do full init ONCE per app session — not on every return from background
+            guard !appState.hasAnnouncedWelcomeThisSession else {
+                // Just restart hardware silently when returning from background/settings
+                lidarManager.start()
+                hapticsManager.ensureEngine()
+                ShakeDetector.shared.start()
+                startBatteryMonitoring()
+                return
+            }
+            appState.hasAnnouncedWelcomeThisSession = true
+            appState.hasCompletedOnboarding = true
+
             // Immediate haptic so blind user knows the screen loaded
             let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.success)
-
-            appState.hasCompletedOnboarding = true
 
             // Sync stored settings to live managers
             if let settings = settingsArray.first {
@@ -215,14 +224,13 @@ struct DashboardView: View {
                 lidarManager.start()
 
                 // Wire all managers' speech through Dashboard's single synthesizer
-                // Scene descriptions use OpenAI TTS for natural voice
                 visionManager.onSpeechRequest = { text in speakNatural(text) }
                 navigationManager.onSpeechRequest = { text in speak(text) }
 
-                // Start shake detection — shaking is easier than tapping for chest-mounted phone
+                // Start shake detection
                 ShakeDetector.shared.start()
 
-                // Spoken welcome so blind users know the app is working
+                // Spoken welcome ONLY on first launch this session
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
                 speak("Sight ready.")

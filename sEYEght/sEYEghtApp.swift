@@ -23,7 +23,7 @@ struct sEYEghtApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                if UserDefaults.standard.bool(forKey: "setupComplete") {
+                if appState.hasCompletedOnboarding {
                     DashboardView()
                 } else {
                     ConversationalSetupView()
@@ -59,7 +59,7 @@ struct sEYEghtApp: App {
                     print("[sEYEghtApp] Entered background — stopped LiDAR")
                 case .active:
                     // Re-check critical permissions
-                    if UserDefaults.standard.bool(forKey: "setupComplete") {
+                    if appState.hasCompletedOnboarding {
                         let camOK = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
                         let locMgr = CLLocationManager()
                         let locOK = (locMgr.authorizationStatus == .authorizedWhenInUse || locMgr.authorizationStatus == .authorizedAlways)

@@ -29,11 +29,17 @@ final class AppState {
     var isListeningForWakeWord = false
     var isSeyeghtActive = false
     var hasCompletedOnboarding = false
+    /// Prevents re-announcing "Sight ready" when returning from background
+    var hasAnnouncedWelcomeThisSession = false
 
     // MARK: - Subscription
     var isAIVisionSubscribed = false
 
     init() {
-        print("[AppState] Initialized")
+        // Restore onboarding state from disk so returning users go straight to Dashboard
+        if UserDefaults.standard.bool(forKey: "setupComplete") {
+            hasCompletedOnboarding = true
+        }
+        print("[AppState] Initialized, setupComplete=\(hasCompletedOnboarding)")
     }
 }
