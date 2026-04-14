@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import Combine
+import UIKit
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
@@ -39,6 +40,10 @@ struct DashboardView: View {
     @State private var sceneSpeechUntil: Date = .distantPast
     /// Track when distance speech started — don't interrupt until it finishes
     @State private var distanceSpeechUntil: Date = .distantPast
+    /// Battery level warnings — track which thresholds have been spoken
+    @State private var lastBatteryWarningLevel: Int = 100
+    /// Timer for periodic battery checks
+    @State private var batteryCheckTimer: Timer?
 
     var body: some View {
         ZStack {
@@ -100,7 +105,7 @@ struct DashboardView: View {
                             .font(SeyeghtTheme.caption)
                             .foregroundColor(SeyeghtTheme.accent)
                     }
-                    .accessibilityLabel(lidarManager.isRunning ? "Seyeght is active" : "Seyeght is starting")
+                    .accessibilityLabel(lidarManager.isRunning ? "Sight is active" : "Sight is starting")
                     Spacer()
 
                     Spacer()
@@ -138,13 +143,13 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Center action hint
+                // Center action hint — single tap for help
                 VStack(spacing: 12) {
                     Image(systemName: isAnalyzingScene ? "eye.fill" : "hand.tap.fill")
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "4-tap or shake to describe")
+                    Text(isAnalyzingScene ? "Describing scene…" : "Tap once for help")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -152,7 +157,11 @@ struct DashboardView: View {
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
                 }
-                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap screen four times or shake phone to describe scene")
+                .contentShape(Rectangle())
+                .onTapGesture(count: 1) {
+                    speakHelp()
+                }
+                .accessibilityLabel("Tap once to hear help. Tap four times or shake to describe scene.")
 
                 Spacer()
 
@@ -196,6 +205,10 @@ struct DashboardView: View {
                 hapticsManager.hapticsEnabled = settings.hapticsEnabled
             }
 
+            // Start battery monitoring
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            startBatteryMonitoring()
+
             // Defer hardware init slightly so the app is fully active
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
@@ -214,7 +227,7 @@ struct DashboardView: View {
                 // Spoken welcome so blind users know the app is working
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Seyeght ready. LiDAR scanning. Tap screen four times or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
+                speak("Sight ready. Tap the center once for help anytime.")
             }
         }
         .onDisappear {
@@ -223,6 +236,8 @@ struct DashboardView: View {
             hapticsManager.stopTone()
             proximityRepeatTimer?.invalidate()
             proximityRepeatTimer = nil
+            batteryCheckTimer?.invalidate()
+            batteryCheckTimer = nil
             ShakeDetector.shared.stop()
         }
         .onReceive(ShakeDetector.shared.shakeDetected) { _ in
@@ -455,5 +470,69 @@ struct DashboardView: View {
             // Yellow → Red
             return Color(red: 1.0, green: 1.0 - (clamped - 0.5) * 2, blue: 0)
         }
+    }
+
+    // MARK: - Battery Monitoring
+
+    /// Start periodic battery level checks
+    private func startBatteryMonitoring() {
+        // Check immediately
+        checkBattery()
+        // Then check every 60 seconds
+        batteryCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            checkBattery()
+        }
+    }
+
+    /// Check battery level and warn at 20%, 10%, 5%
+    private func checkBattery() {
+        let level = Int(UIDevice.current.batteryLevel * 100)
+        let state = UIDevice.current.batteryState
+        
+        // Don't warn if charging or level is unknown (-1)
+        guard level >= 0, state != .charging, state != .full else { return }
+        
+        // Warning thresholds: 20%, 10%, 5%
+        let warningThresholds = [20, 10, 5]
+        
+        for threshold in warningThresholds {
+            // Warn if we just crossed below this threshold
+            if level <= threshold && lastBatteryWarningLevel > threshold {
+                lastBatteryWarningLevel = level
+                let message: String
+                switch threshold {
+                case 20:
+                    message = "Battery at \(level) percent. Consider charging soon."
+                case 10:
+                    message = "Battery low. \(level) percent remaining."
+                case 5:
+                    message = "Battery critical. Only \(level) percent left. Please charge now."
+                default:
+                    message = "Battery at \(level) percent."
+                }
+                speak(message, priority: true)
+                print("[DashboardView] 🔋 Battery warning: \(level)%")
+                return
+            }
+        }
+        
+        // Update tracking even if no warning
+        if level < lastBatteryWarningLevel {
+            lastBatteryWarningLevel = level
+        }
+    }
+
+    // MARK: - Help
+
+    /// Speak all available commands
+    private func speakHelp() {
+        let helpText = """
+        Here are your commands. \
+        Tap center once for this help. \
+        Tap four times or shake to describe what's ahead. \
+        Triple-tap for emergency mode — it announces your location. Triple-tap again to exit. \
+        Double-tap the bottom left corner for settings.
+        """
+        speak(helpText, priority: true)
     }
 }

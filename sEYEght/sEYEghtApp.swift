@@ -64,7 +64,7 @@ struct sEYEghtApp: App {
                         let locMgr = CLLocationManager()
                         let locOK = (locMgr.authorizationStatus == .authorizedWhenInUse || locMgr.authorizationStatus == .authorizedAlways)
                         if !camOK || !locOK {
-                            Narrator.shared.speak("Seyeght needs camera and location access to keep you safe. Please re-enable them in your iPhone Settings.")
+                            Narrator.shared.speak("Sight needs camera and location access to keep you safe. Please re-enable them in your iPhone Settings.")
                         }
                     }
                     // Re-start if they were running before (user returned from background)

@@ -188,7 +188,7 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         await Narrator.shared.speakAndWait(
-            "Hi, I'm Seyeght — your navigation assistant. I detect obstacles with sound and vibration."
+            "Hi, I'm Sight — your navigation assistant. I detect obstacles with sound and vibration."
         )
         guard !Task.isCancelled else { return }
 
@@ -317,7 +317,7 @@ struct ConversationalSetupView: View {
                 // Previously denied — must go to Settings
                 // iOS doesn't allow re-showing the permission dialog after denial
                 statusText = "Enable Camera"
-                await Narrator.shared.speakAndWait("You previously denied camera access. I'll open Settings now. Find the Camera toggle and turn it ON. Then swipe up and tap Seyeght to return here. Tap anywhere to re-open Settings.")
+                await Narrator.shared.speakAndWait("You previously denied camera access. I'll open Settings now. Find the Camera toggle and turn it ON. Then swipe up and tap Sight to return here. Tap anywhere to re-open Settings.")
                 waitingForSettingsReturn = true
                 await openSettings()
                 
@@ -357,7 +357,7 @@ struct ConversationalSetupView: View {
             } else {
                 // Previously denied — must go to Settings
                 statusText = "Enable Location"
-                await Narrator.shared.speakAndWait("You previously denied location access. I'll open Settings now. Find Location and select While Using the App. Then swipe up and tap Seyeght to return. Tap anywhere to re-open Settings.")
+                await Narrator.shared.speakAndWait("You previously denied location access. I'll open Settings now. Find Location and select While Using the App. Then swipe up and tap Sight to return. Tap anywhere to re-open Settings.")
                 waitingForSettingsReturn = true
                 await openSettings()
                 
@@ -404,6 +404,9 @@ struct ConversationalSetupView: View {
         await Narrator.shared.speakAndWait("Tap the screen four times quickly to hear what's in front of you.")
         guard !Task.isCancelled else { return }
 
+        await Narrator.shared.speakAndWait("Triple-tap anywhere for emergency mode. It will announce your location out loud so someone can help you.")
+        guard !Task.isCancelled else { return }
+
         await Narrator.shared.speakAndWait("To open settings, double-tap the bottom-left corner of your screen.")
     }
 
@@ -438,11 +441,11 @@ struct ConversationalSetupView: View {
             alreadyGranted: permissionsManager.cameraStatus,
             notDetermined: permissionsManager.cameraNotDetermined,
             firstTimePrompt: "First, I need access to your camera. This is how I see obstacles and describe your surroundings. You'll hear a system prompt now — please tap Allow.",
-            alreadyDeniedPrompt: "I need camera access, but it was previously denied. I'll open your Settings now — please turn on Camera for Seyeght, then come back.",
+            alreadyDeniedPrompt: "I need camera access, but it was previously denied. I'll open your Settings now — please turn on Camera for Sight, then come back.",
             request: { permissionsManager.requestCamera() },
             check: { permissionsManager.cameraStatus },
             grantedMessage: "Perfect. Camera is ready.",
-            deniedMessage: "I wasn't able to get camera access. Seyeght really needs the camera to keep you safe."
+            deniedMessage: "I wasn't able to get camera access. Sight really needs the camera to keep you safe."
         )
         guard !Task.isCancelled else { return }
 
@@ -452,11 +455,11 @@ struct ConversationalSetupView: View {
             alreadyGranted: permissionsManager.locationStatus,
             notDetermined: permissionsManager.locationNotDetermined,
             firstTimePrompt: "Next, I need your location. This helps me tell you where you are when you ask. You'll hear a system prompt — please tap Allow While Using App.",
-            alreadyDeniedPrompt: "I need location access, but it was previously denied. I'll open your Settings now — please turn on Location for Seyeght, then come back.",
+            alreadyDeniedPrompt: "I need location access, but it was previously denied. I'll open your Settings now — please turn on Location for Sight, then come back.",
             request: { permissionsManager.requestLocation() },
             check: { permissionsManager.locationStatus },
             grantedMessage: "Got it. Location is active.",
-            deniedMessage: "I wasn't able to get location access. Seyeght needs this to tell you where you are."
+            deniedMessage: "I wasn't able to get location access. Sight needs this to tell you where you are."
         )
         guard !Task.isCancelled else { return }
 
@@ -468,7 +471,7 @@ struct ConversationalSetupView: View {
             ].compactMap { $0 }.joined(separator: " and ")
 
             await Narrator.shared.speakWithOpenAIAndWait(
-                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then swipe up and tap Seyeght to return. Tap the screen anytime to re-open Settings."
+                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Sight, then swipe up and tap Sight to return. Tap the screen anytime to re-open Settings."
             )
             guard !Task.isCancelled else { return }
 
@@ -562,7 +565,7 @@ struct ConversationalSetupView: View {
             let settingsGuidance = name == "Camera"
                 ? "Find the Camera toggle and turn it ON."
                 : "Tap Location and select While Using the App."
-            await Narrator.shared.speakWithOpenAIAndWait("\(deniedPrompt) \(settingsGuidance) Then swipe up and tap Seyeght to return. Tap the screen anytime to re-open Settings.")
+            await Narrator.shared.speakWithOpenAIAndWait("\(deniedPrompt) \(settingsGuidance) Then swipe up and tap Sight to return. Tap the screen anytime to re-open Settings.")
             guard !Task.isCancelled else { return }
 
             waitingForSettingsReturn = true
@@ -685,7 +688,7 @@ struct ConversationalSetupView: View {
 
         // 4d — Explain interaction model
         await Narrator.shared.speakWithOpenAIAndWait(
-            "To use the app, just double-tap anywhere on the screen and I'll describe what's in front of you. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly."
+            "To use the app, tap the screen four times quickly and I'll describe what's in front of you. Or shake your phone. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly. Triple-tap again to exit emergency mode."
         )
     }
 
