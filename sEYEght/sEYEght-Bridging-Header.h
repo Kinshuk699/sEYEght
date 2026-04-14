@@ -2,7 +2,7 @@
 //  sEYEght-Bridging-Header.h
 //  sEYEght
 //
-//  Bridging header for sherpa-onnx C API
+//  Bridging header (kept for future C/Objective-C imports if needed)
 //
 
-#import "sherpa-onnx/c-api/c-api.h"
+// Empty — no C APIs currently needed

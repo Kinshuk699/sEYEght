@@ -7,9 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA0001032F7D30000031E5BC /* sherpa-onnx.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0001012F7D30000031E5BC /* sherpa-onnx.xcframework */; };
 		AA0001042F7D30000031E5BC /* onnxruntime.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0001022F7D30000031E5BC /* onnxruntime.xcframework */; };
-		AA0002012F7D40000031E5BC /* kokoro-int8-en-v0_19 in Resources */ = {isa = PBXBuildFile; fileRef = AA0002002F7D40000031E5BC /* kokoro-int8-en-v0_19 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,9 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		AA0001012F7D30000031E5BC /* sherpa-onnx.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "sherpa-onnx.xcframework"; path = "Frameworks/sherpa-onnx.xcframework"; sourceTree = "<group>"; };
 		AA0001022F7D30000031E5BC /* onnxruntime.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = onnxruntime.xcframework; path = Frameworks/onnxruntime.xcframework; sourceTree = "<group>"; };
-		AA0002002F7D40000031E5BC /* kokoro-int8-en-v0_19 */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "kokoro-int8-en-v0_19"; sourceTree = "<group>"; };
 		EC5B719C2F7D2CFE0031E5BC /* sEYEght.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = sEYEght.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EC5B71A92F7D2CFF0031E5BC /* sEYEghtTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = sEYEghtTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EC5B71B32F7D2CFF0031E5BC /* sEYEghtUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = sEYEghtUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -61,7 +57,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0001032F7D30000031E5BC /* sherpa-onnx.xcframework in Frameworks */,
 				AA0001042F7D30000031E5BC /* onnxruntime.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -90,9 +85,7 @@
 				EC5B71AC2F7D2CFF0031E5BC /* sEYEghtTests */,
 				EC5B71B62F7D2CFF0031E5BC /* sEYEghtUITests */,
 				EC5B719D2F7D2CFE0031E5BC /* Products */,
-				AA0001012F7D30000031E5BC /* sherpa-onnx.xcframework */,
 				AA0001022F7D30000031E5BC /* onnxruntime.xcframework */,
-				AA0002002F7D40000031E5BC /* kokoro-int8-en-v0_19 */,
 			);
 			sourceTree = "<group>";
 		};
@@ -226,7 +219,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0002012F7D40000031E5BC /* kokoro-int8-en-v0_19 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,8 +411,6 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/ios-arm64/Headers",
-					"$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/ios-arm64_x86_64-simulator/Headers",
 				);
 				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
@@ -481,8 +471,6 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/ios-arm64/Headers",
-					"$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/ios-arm64_x86_64-simulator/Headers",
 				);
 				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
