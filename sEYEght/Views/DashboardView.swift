@@ -143,13 +143,13 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Center action hint — single tap for help
+                // Center action hint
                 VStack(spacing: 12) {
                     Image(systemName: isAnalyzingScene ? "eye.fill" : "hand.tap.fill")
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "Tap once for help")
+                    Text(isAnalyzingScene ? "Describing scene…" : "4-tap to describe")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -157,11 +157,7 @@ struct DashboardView: View {
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture(count: 1) {
-                    speakHelp()
-                }
-                .accessibilityLabel("Tap once to hear help. Tap four times or shake to describe scene.")
+                .accessibilityHidden(true)
 
                 Spacer()
 
@@ -227,7 +223,7 @@ struct DashboardView: View {
                 // Spoken welcome so blind users know the app is working
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Sight ready. Tap the center once for help anytime.")
+                speak("Sight ready.")
             }
         }
         .onDisappear {
@@ -398,43 +394,15 @@ struct DashboardView: View {
         }
     }
 
-    /// Triple-tap emergency: speak location loudly. Triple-tap again to exit.
+    /// Triple-tap: immediately speak current location
     private func handleEmergencyTripleTap() {
-        if isEmergencyActive {
-            // Triple-tap again to EXIT emergency mode
-            isEmergencyActive = false
-            let exitGen = UINotificationFeedbackGenerator()
-            exitGen.notificationOccurred(.success)
-            speak("Emergency mode ended. Resuming normal navigation.", priority: true)
-            print("[DashboardView] 🚨 Emergency mode deactivated by user")
-            return
-        }
-
-        isEmergencyActive = true
-
-        // Strong haptic burst
+        // Strong haptic so user knows it registered
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
 
-        // Stop ALL current speech and announce emergency mode
-        speak("Emergency mode activated. Your location is being announced. Triple-tap again to exit.", priority: true)
-
-        // Speak current location after the emergency message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [self] in
-            guard isEmergencyActive else { return }
-            navigationManager.speakCurrentLocation()
-        }
-
-        // Repeat location every 30 seconds while emergency mode is active
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(34))
-            while !Task.isCancelled && isEmergencyActive {
-                navigationManager.speakCurrentLocation()
-                try? await Task.sleep(for: .seconds(30))
-            }
-        }
-
-        print("[DashboardView] 🚨 Emergency triple-tap activated — persists until dismissed")
+        // Immediately speak location — no "mode", no delay
+        navigationManager.speakCurrentLocation()
+        print("[DashboardView] 📍 Triple-tap — speaking location")
     }
 
     // MARK: - Centralized Speech
@@ -524,13 +492,12 @@ struct DashboardView: View {
 
     // MARK: - Help
 
-    /// Speak all available commands
+    /// Speak all available commands (can be wired up to settings later)
     private func speakHelp() {
         let helpText = """
         Here are your commands. \
-        Tap center once for this help. \
         Tap four times or shake to describe what's ahead. \
-        Triple-tap for emergency mode — it announces your location. Triple-tap again to exit. \
+        Triple-tap to hear your current location. \
         Double-tap the bottom left corner for settings.
         """
         speak(helpText, priority: true)

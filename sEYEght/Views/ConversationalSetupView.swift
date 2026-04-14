@@ -404,7 +404,7 @@ struct ConversationalSetupView: View {
         await Narrator.shared.speakAndWait("Tap the screen four times quickly to hear what's in front of you.")
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakAndWait("Triple-tap anywhere for emergency mode. It will announce your location out loud so someone can help you.")
+        await Narrator.shared.speakAndWait("Triple-tap to hear your current location.")
         guard !Task.isCancelled else { return }
 
         await Narrator.shared.speakAndWait("To open settings, double-tap the bottom-left corner of your screen.")
@@ -688,7 +688,7 @@ struct ConversationalSetupView: View {
 
         // 4d — Explain interaction model
         await Narrator.shared.speakWithOpenAIAndWait(
-            "To use the app, tap the screen four times quickly and I'll describe what's in front of you. Or shake your phone. If you ever feel unsafe, triple-tap the screen for emergency mode — I'll announce your location loudly. Triple-tap again to exit emergency mode."
+            "To use the app, tap the screen four times quickly and I'll describe what's in front of you. Or shake your phone. Triple-tap to hear your current location."
         )
     }
 
