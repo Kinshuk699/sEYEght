@@ -30,6 +30,59 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
+                // MARK: - Feedback Modes
+                SectionHeader(title: "FEEDBACK MODES")
+
+                FeedbackToggle(
+                    label: "Voice Narration",
+                    description: "AI descriptions & spoken alerts",
+                    isOn: Binding(
+                        get: { settings.voiceEnabled },
+                        set: { newValue in
+                            if !newValue && !settings.beepsEnabled && !settings.hapticsEnabled {
+                                Narrator.shared.speak("At least one feedback type must stay on for your safety")
+                                return
+                            }
+                            settings.voiceEnabled = newValue
+                            speakSettingChange(newValue ? "Voice on" : "Voice off")
+                        }
+                    )
+                )
+
+                FeedbackToggle(
+                    label: "Proximity Beeps",
+                    description: "Audio tones for obstacles",
+                    isOn: Binding(
+                        get: { settings.beepsEnabled },
+                        set: { newValue in
+                            if !newValue && !settings.voiceEnabled && !settings.hapticsEnabled {
+                                Narrator.shared.speak("At least one feedback type must stay on for your safety")
+                                return
+                            }
+                            settings.beepsEnabled = newValue
+                            hapticsManager.audioToneEnabled = newValue
+                            speakSettingChange(newValue ? "Beeps on" : "Beeps off")
+                        }
+                    )
+                )
+
+                FeedbackToggle(
+                    label: "Haptic Vibrations",
+                    description: "Vibration feedback",
+                    isOn: Binding(
+                        get: { settings.hapticsEnabled },
+                        set: { newValue in
+                            if !newValue && !settings.voiceEnabled && !settings.beepsEnabled {
+                                Narrator.shared.speak("At least one feedback type must stay on for your safety")
+                                return
+                            }
+                            settings.hapticsEnabled = newValue
+                            hapticsManager.hapticsEnabled = newValue
+                            speakSettingChange(newValue ? "Haptics on" : "Haptics off")
+                        }
+                    )
+                )
+
                 // MARK: - Obstacle Detection
                 SectionHeader(title: "OBSTACLE DETECTION")
 
@@ -186,6 +239,8 @@ struct SettingsView: View {
             hapticsManager.userIntensityLevel = settings.hapticIntensityLevel
             hapticsManager.maxRange = settings.radarRangeMeters
             hapticsManager.audioToneVolume = Float(settings.beepVolume)
+            hapticsManager.audioToneEnabled = settings.beepsEnabled
+            hapticsManager.hapticsEnabled = settings.hapticsEnabled
         }
     }
 
@@ -209,5 +264,34 @@ struct SectionHeader: View {
             .foregroundColor(SeyeghtTheme.accent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Toggle switch for feedback modes
+struct FeedbackToggle: View {
+    let label: String
+    let description: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(SeyeghtTheme.bodyBold)
+                    .foregroundColor(SeyeghtTheme.primaryText)
+                Text(description)
+                    .font(SeyeghtTheme.caption)
+                    .foregroundColor(SeyeghtTheme.secondaryText)
+            }
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .toggleStyle(SwitchToggleStyle(tint: SeyeghtTheme.accent))
+                .labelsHidden()
+        }
+        .padding(16)
+        .background(SeyeghtTheme.cardBackground)
+        .cornerRadius(SeyeghtTheme.cardCornerRadius)
+        .accessibilityLabel("\(label), \(isOn ? "on" : "off")")
+        .accessibilityHint("Double tap to toggle")
     }
 }

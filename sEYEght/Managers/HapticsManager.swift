@@ -18,6 +18,9 @@ final class HapticsManager {
     /// User-configurable intensity multiplier (0.0 to 1.0)
     var userIntensityLevel: Double = 0.5
 
+    /// Whether haptic vibrations are enabled (user can toggle)
+    var hapticsEnabled: Bool = true
+
     /// Whether audio proximity tones are enabled (user can toggle)
     var audioToneEnabled: Bool = true
 
@@ -154,7 +157,8 @@ final class HapticsManager {
             toneFrequency = 0 // Silent
         }
 
-        // Haptics — throttled to avoid rate-limit warnings
+        // Haptics — throttled to avoid rate-limit warnings and respects user preference
+        guard hapticsEnabled else { return }
         let now = Date()
         guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
         lastHapticTime = now

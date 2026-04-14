@@ -19,11 +19,27 @@ final class UserSettings {
     /// AI speech rate: 0.3 (slow) to 0.7 (fast), default 0.5
     var speechRate: Double = 0.5
 
-    /// Audio proximity beep volume: 0.0 (off) to 1.0 (max), default 0.15
-    var beepVolume: Double = 0.15
+    /// Audio proximity beep volume: 0.0 (off) to 0.5 (max), default 0.05 (quiet)
+    var beepVolume: Double = 0.05
 
     /// Whether user has completed onboarding
     var hasCompletedOnboarding: Bool = false
+
+    // MARK: - Feedback Preferences
+
+    /// Voice narration enabled (AI descriptions, alerts, UI reading)
+    var voiceEnabled: Bool = true
+
+    /// Proximity beep tones enabled
+    var beepsEnabled: Bool = true
+
+    /// Haptic vibration feedback enabled
+    var hapticsEnabled: Bool = true
+
+    /// Returns true if at least one feedback type is enabled (safety requirement)
+    func hasAtLeastOneFeedback() -> Bool {
+        voiceEnabled || beepsEnabled || hapticsEnabled
+    }
 
     init() {
     }

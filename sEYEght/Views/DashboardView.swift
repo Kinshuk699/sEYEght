@@ -37,6 +37,8 @@ struct DashboardView: View {
     @State private var lastAnalysisTime: Date = .distantPast
     /// Suppress distance warnings while scene description is playing
     @State private var sceneSpeechUntil: Date = .distantPast
+    /// Track when distance speech started — don't interrupt until it finishes
+    @State private var distanceSpeechUntil: Date = .distantPast
 
     var body: some View {
         ZStack {
@@ -142,7 +144,7 @@ struct DashboardView: View {
                         .font(.system(size: 32))
                         .foregroundColor(SeyeghtTheme.accent)
                         .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "Double-tap or shake to describe")
+                    Text(isAnalyzingScene ? "Describing scene…" : "4-tap or shake to describe")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -150,26 +152,21 @@ struct DashboardView: View {
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(12)
                 }
-                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Double-tap or shake phone to describe scene")
+                .accessibilityLabel(isAnalyzingScene ? "Describing scene" : "Tap screen four times or shake phone to describe scene")
 
                 Spacer()
 
                 // Bottom: settings gear
                 HStack {
-                    Button {
-                        let generator = UIImpactFeedbackGenerator(style: .medium)
-                        generator.impactOccurred()
-                        navigateToSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(SeyeghtTheme.accent)
-                            .padding(10)
-                            .background(Color.black.opacity(0.5))
-                            .clipShape(Circle())
-                    }
-                    .accessibilityLabel("Settings")
-                    .accessibilityHint("Double tap to open settings")
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(SeyeghtTheme.accent)
+                        .padding(10)
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Circle())
+                        .navigable("Settings button") {
+                            navigateToSettings = true
+                        }
                     Spacer()
                 }
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
@@ -180,7 +177,7 @@ struct DashboardView: View {
         .onTapGesture(count: 3) {
             handleEmergencyTripleTap()
         }
-        .onTapGesture(count: 2) {
+        .onTapGesture(count: 4) {
             handleSceneTap()
         }
         .onAppear {
@@ -195,6 +192,8 @@ struct DashboardView: View {
                 hapticsManager.userIntensityLevel = settings.hapticIntensityLevel
                 hapticsManager.maxRange = settings.radarRangeMeters
                 hapticsManager.audioToneVolume = Float(settings.beepVolume)
+                hapticsManager.audioToneEnabled = settings.beepsEnabled
+                hapticsManager.hapticsEnabled = settings.hapticsEnabled
             }
 
             // Defer hardware init slightly so the app is fully active
@@ -215,7 +214,7 @@ struct DashboardView: View {
                 // Spoken welcome so blind users know the app is working
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Seyeght ready. LiDAR scanning. Double-tap the screen or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
+                speak("Seyeght ready. LiDAR scanning. Tap screen four times or shake your phone to describe what's ahead. Triple-tap for emergency mode.")
             }
         }
         .onDisappear {
@@ -306,6 +305,9 @@ struct DashboardView: View {
         guard !isEmergencyActive else { return }
         // Suppress distance speech while a scene description is being read
         guard !isAnalyzingScene && Date() > sceneSpeechUntil else { return }
+        // Don't interrupt an in-progress distance announcement — let it finish
+        guard Date() > distanceSpeechUntil else { return }
+        
         guard distance < 1.2 else {
             // Cleared — reset so we can announce again when approaching
             if lastSpokenThreshold < Float.greatestFiniteMagnitude {
@@ -354,8 +356,12 @@ struct DashboardView: View {
         default: return
         }
 
-        // Speak with high priority — stops any current speech first
-        speak(distanceText, priority: true)
+        // Block new distance announcements for ~2.5 seconds (let current one finish)
+        distanceSpeechUntil = Date().addingTimeInterval(2.5)
+        
+        // Speak WITHOUT interrupting — if something else is playing, this gets queued
+        // The distanceSpeechUntil check ensures we won't try to speak again too soon
+        speak(distanceText, priority: false)
 
         // For very close obstacles, set up a repeat timer
         proximityRepeatTimer?.invalidate()

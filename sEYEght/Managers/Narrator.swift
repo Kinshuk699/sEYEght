@@ -152,24 +152,38 @@ extension View {
     }
 }
 
-// MARK: - Readable View Modifier
+// MARK: - Navigable View Modifier (Single-tap speaks, Double-tap activates)
 
-struct ReadableModifier: ViewModifier {
+/// Makes a view accessible for blind users without system VoiceOver:
+/// - Single tap: speaks the label
+/// - Double tap: executes the action
+struct NavigableModifier: ViewModifier {
     let label: String
+    let action: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onTapGesture {
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                // Double tap = activate
                 let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.prepare()
+                generator.impactOccurred()
+                action()
+            }
+            .onTapGesture(count: 1) {
+                // Single tap = speak label
+                let generator = UIImpactFeedbackGenerator(style: .light)
                 generator.impactOccurred()
                 Narrator.shared.speak(label)
             }
+            .accessibilityLabel(label)
+            .accessibilityHint("Double tap to activate")
     }
 }
 
 extension View {
-    func readable(_ label: String) -> some View {
-        self.modifier(ReadableModifier(label: label))
+    /// Makes element navigable: single-tap speaks, double-tap activates
+    func navigable(_ label: String, action: @escaping () -> Void) -> some View {
+        self.modifier(NavigableModifier(label: label, action: action))
     }
 }

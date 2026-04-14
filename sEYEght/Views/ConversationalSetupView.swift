@@ -11,7 +11,7 @@ import ARKit
 import CoreMotion
 
 /// Audio-first conversational setup that replaces all visual onboarding.
-/// One voice, one screen, one conversation.
+/// Offers Quick (45 seconds) or Full (3 minutes) setup modes.
 struct ConversationalSetupView: View {
     @Environment(HapticsManager.self) private var hapticsManager
     @Environment(VisionManager.self) private var visionManager
@@ -23,9 +23,18 @@ struct ConversationalSetupView: View {
     @State private var statusText: String = "Setting up..."
     @State private var isPulsing = false
     @State private var navigateToDashboard = false
+    @State private var setupMode: SetupMode = .none
+    @State private var waitingForTap = false  // For user choice input
+
+    enum SetupMode {
+        case none      // Not yet chosen
+        case quick     // ~45 seconds: intro → permissions → one beep → go
+        case full      // ~3 minutes: comprehensive walkthrough
+    }
 
     enum SetupPhase: Int, CaseIterable {
         case welcome
+        case modeChoice
         case permissions
         case mountPhone
         case featureDemo
@@ -65,6 +74,21 @@ struct ConversationalSetupView: View {
                 Spacer()
             }
         }
+        .contentShape(Rectangle())  // Makes entire area tappable
+        .onTapGesture(count: 1) {
+            // Single tap = Quick setup
+            if waitingForTap && setupMode == .none {
+                setupMode = .quick
+                waitingForTap = false
+            }
+        }
+        .onTapGesture(count: 2) {
+            // Double tap = Full setup
+            if waitingForTap && setupMode == .none {
+                setupMode = .full
+                waitingForTap = false
+            }
+        }
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToDashboard) {
             DashboardView()
@@ -79,51 +103,121 @@ struct ConversationalSetupView: View {
     // MARK: - Conversation State Machine
 
     private func runConversation() async {
-        await phaseWelcome()
+        // Phase 1: Welcome + Mode Choice
+        await phaseWelcomeAndModeChoice()
         guard !Task.isCancelled else { return }
 
-        // Guide user to download better voice if using basic compact voice
-        await phaseVoiceCheck()
+        // Branch based on chosen mode
+        if setupMode == .quick {
+            await runQuickSetup()
+        } else {
+            await runFullSetup()
+        }
+    }
+
+    // MARK: - Quick Setup (~45 seconds)
+
+    private func runQuickSetup() async {
+        // Streamlined permissions (no extra explanations)
+        await phasePermissionsQuick()
         guard !Task.isCancelled else { return }
 
-        await phasePermissions()
-        guard !Task.isCancelled else { return }
-
-        // Don't continue if mandatory permissions are missing
         guard permissionsManager.cameraStatus && permissionsManager.locationStatus else {
             statusText = "Waiting for permissions..."
             return
         }
 
+        // One quick beep demo
+        await demoBeepsQuick()
+        guard !Task.isCancelled else { return }
+
+        // Done!
+        await phaseReadyQuick()
+    }
+
+    // MARK: - Full Setup (~3 minutes)
+
+    private func runFullSetup() async {
+        // Voice quality check (only in full mode)
+        await phaseVoiceCheck()
+        guard !Task.isCancelled else { return }
+
+        // Full permissions with explanations
+        await phasePermissions()
+        guard !Task.isCancelled else { return }
+
+        guard permissionsManager.cameraStatus && permissionsManager.locationStatus else {
+            statusText = "Waiting for permissions..."
+            return
+        }
+
+        // Mount phone with verification
         await phaseMountPhone()
         guard !Task.isCancelled else { return }
 
+        // Full feature demo (beeps, haptics, camera)
         await phaseFeatureDemo()
         guard !Task.isCancelled else { return }
 
+        // Ready
         await phaseReady()
     }
 
-    // MARK: - Phase 1: Welcome
+    // MARK: - Phase 1: Welcome + Mode Choice
 
-    private func phaseWelcome() async {
+    private func phaseWelcomeAndModeChoice() async {
         phase = .welcome
         statusText = "Welcome"
 
-        try? await Task.sleep(for: .seconds(1))
+        try? await Task.sleep(for: .seconds(0.5))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakWithOpenAIAndWait(
-            "Hi there. I'm Seyeght — your personal navigation assistant. I use your iPhone's camera and sensors to detect obstacles around you, warn you with sounds and vibrations, and describe what's in front of you. Let's get you set up. It'll take about two minutes."
+        await Narrator.shared.speakAndWait(
+            "Hi, I'm Seyeght — your navigation assistant. I detect obstacles with sound and vibration."
         )
         guard !Task.isCancelled else { return }
 
-        try? await Task.sleep(for: .seconds(1.5))
+        try? await Task.sleep(for: .seconds(0.5))
         guard !Task.isCancelled else { return }
 
-        await Narrator.shared.speakWithOpenAIAndWait(
-            "I'll need a few permissions to work. I'll ask for each one now and explain why."
+        // Mode choice
+        phase = .modeChoice
+        statusText = "Choose Setup"
+
+        await Narrator.shared.speakAndWait(
+            "Tap once for quick setup, about 45 seconds. Double-tap for full walkthrough, about 3 minutes."
         )
+        guard !Task.isCancelled else { return }
+
+        // Wait for tap
+        waitingForTap = true
+        statusText = "Tap to choose..."
+
+        // Poll until user chooses (with timeout + reminder)
+        var waited = 0
+        while setupMode == .none && !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(500))
+            waited += 500
+            guard !Task.isCancelled else { return }
+
+            // Reminder every 8 seconds
+            if waited % 8000 == 0 && waited < 24000 {
+                await Narrator.shared.speakAndWait("Tap once for quick. Double-tap for full.")
+            }
+
+            // Default to quick after 25 seconds
+            if waited >= 25000 {
+                setupMode = .quick
+                await Narrator.shared.speakAndWait("Starting quick setup.")
+            }
+        }
+        waitingForTap = false
+
+        if setupMode == .quick {
+            statusText = "Quick Setup"
+        } else {
+            statusText = "Full Setup"
+        }
     }
 
     // MARK: - Phase 1b: Voice Quality Check
@@ -177,6 +271,139 @@ struct ConversationalSetupView: View {
                 "No worries, we'll use the current voice for now. You can always download a better one later in Settings under Accessibility, Spoken Content, Voices."
             )
         }
+    }
+
+    // MARK: - Quick Setup: Streamlined Permissions
+
+    private func phasePermissionsQuick() async {
+        phase = .permissions
+        statusText = "Permissions"
+
+        await Narrator.shared.speakAndWait("I need camera and location. Tap Allow on each prompt.")
+        guard !Task.isCancelled else { return }
+
+        // Camera — keep asking until granted
+        while !permissionsManager.cameraStatus {
+            guard !Task.isCancelled else { return }
+            permissionsManager.checkCurrentStatuses()
+            
+            if permissionsManager.cameraNotDetermined {
+                statusText = "Camera"
+                await Narrator.shared.speakAndWait("I need your camera to detect obstacles. Tap Allow.")
+                permissionsManager.requestCamera()
+                // Wait for dialog response
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    permissionsManager.checkCurrentStatuses()
+                    if permissionsManager.cameraStatus || !permissionsManager.cameraNotDetermined { break }
+                }
+            } else {
+                // Previously denied — must go to Settings
+                statusText = "Camera Required"
+                await Narrator.shared.speakAndWait("Camera is required. I'm opening Settings. Please enable Camera for Seyeght, then come back.")
+                await openSettings()
+                
+                // Keep polling and reminding
+                var reminderCount = 0
+                while !permissionsManager.cameraStatus {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    permissionsManager.checkCurrentStatuses()
+                    reminderCount += 1
+                    
+                    // Reminder every 20 seconds
+                    if reminderCount % 40 == 0 && !permissionsManager.cameraStatus {
+                        await Narrator.shared.speakAndWait("Still waiting for camera permission. Please enable it in Settings.")
+                    }
+                }
+            }
+        }
+
+        // Location — keep asking until granted
+        while !permissionsManager.locationStatus {
+            guard !Task.isCancelled else { return }
+            permissionsManager.checkCurrentStatuses()
+            
+            if permissionsManager.locationNotDetermined {
+                statusText = "Location"
+                await Narrator.shared.speakAndWait("I need your location to tell you where you are. Tap Allow.")
+                permissionsManager.requestLocation()
+                // Wait for dialog response
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    permissionsManager.checkCurrentStatuses()
+                    if permissionsManager.locationStatus || !permissionsManager.locationNotDetermined { break }
+                }
+            } else {
+                // Previously denied — must go to Settings
+                statusText = "Location Required"
+                await Narrator.shared.speakAndWait("Location is required. I'm opening Settings. Please enable Location for Seyeght, then come back.")
+                await openSettings()
+                
+                // Keep polling and reminding
+                var reminderCount = 0
+                while !permissionsManager.locationStatus {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    permissionsManager.checkCurrentStatuses()
+                    reminderCount += 1
+                    
+                    // Reminder every 20 seconds
+                    if reminderCount % 40 == 0 && !permissionsManager.locationStatus {
+                        await Narrator.shared.speakAndWait("Still waiting for location permission. Please enable it in Settings.")
+                    }
+                }
+            }
+        }
+
+        // Final status — only reached when both permissions granted
+        await Narrator.shared.speakAndWait("Ready.")
+    }
+
+    // MARK: - Quick Setup: Single Beep Demo
+
+    private func demoBeepsQuick() async {
+        statusText = "Demo"
+
+        // Mount guidance first
+        await Narrator.shared.speakAndWait("Mount your phone on your chest with camera facing forward.")
+        guard !Task.isCancelled else { return }
+
+        await Narrator.shared.speakAndWait("Quick demo: beeps mean obstacle ahead. Faster means closer.")
+        guard !Task.isCancelled else { return }
+
+        // Show medium beep (1.5m)
+        hapticsManager.ensureEngine()
+        hapticsManager.updateForDistance(1.5)
+        try? await Task.sleep(for: .seconds(2.5))
+        hapticsManager.stopTone()
+        guard !Task.isCancelled else { return }
+
+        await Narrator.shared.speakAndWait("Tap the screen four times quickly to hear what's in front of you.")
+        guard !Task.isCancelled else { return }
+
+        await Narrator.shared.speakAndWait("To open settings, double-tap the bottom-left corner of your screen.")
+    }
+
+    // MARK: - Quick Setup: Ready
+
+    private func phaseReadyQuick() async {
+        phase = .ready
+        statusText = "Ready!"
+
+        await Narrator.shared.speakAndWait("Setup complete. Let's go.")
+        guard !Task.isCancelled else { return }
+
+        try? await Task.sleep(for: .seconds(0.5))
+
+        // Mark setup as complete
+        appState.hasCompletedOnboarding = true
+        UserDefaults.standard.set(true, forKey: "setupComplete")
+
+        // Navigate to Dashboard
+        navigateToDashboard = true
     }
 
     // MARK: - Phase 2: Permissions
