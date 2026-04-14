@@ -25,6 +25,7 @@ struct ConversationalSetupView: View {
     @State private var navigateToDashboard = false
     @State private var setupMode: SetupMode = .none
     @State private var waitingForTap = false  // For user choice input
+    @State private var waitingForSettingsReturn = false  // User is in Settings app
 
     enum SetupMode {
         case none      // Not yet chosen
@@ -76,6 +77,13 @@ struct ConversationalSetupView: View {
         }
         .contentShape(Rectangle())  // Makes entire area tappable
         .onTapGesture(count: 1) {
+            // If waiting for Settings, re-open Settings on tap
+            if waitingForSettingsReturn {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+                return
+            }
             // Single tap = Quick setup
             if waitingForTap && setupMode == .none {
                 setupMode = .quick
@@ -83,6 +91,13 @@ struct ConversationalSetupView: View {
             }
         }
         .onTapGesture(count: 2) {
+            // If waiting for Settings, re-open Settings on double tap too
+            if waitingForSettingsReturn {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+                return
+            }
             // Double tap = Full setup
             if waitingForTap && setupMode == .none {
                 setupMode = .full
@@ -300,8 +315,10 @@ struct ConversationalSetupView: View {
                 }
             } else {
                 // Previously denied — must go to Settings
-                statusText = "Camera Required"
-                await Narrator.shared.speakAndWait("Camera is required. I'm opening Settings. Please enable Camera for Seyeght, then come back.")
+                // iOS doesn't allow re-showing the permission dialog after denial
+                statusText = "Enable Camera"
+                await Narrator.shared.speakAndWait("You previously denied camera access. I'll open Settings now. Find the Camera toggle and turn it ON. Then swipe up and tap Seyeght to return here. Tap anywhere to re-open Settings.")
+                waitingForSettingsReturn = true
                 await openSettings()
                 
                 // Keep polling and reminding
@@ -312,11 +329,12 @@ struct ConversationalSetupView: View {
                     permissionsManager.checkCurrentStatuses()
                     reminderCount += 1
                     
-                    // Reminder every 20 seconds
-                    if reminderCount % 40 == 0 && !permissionsManager.cameraStatus {
-                        await Narrator.shared.speakAndWait("Still waiting for camera permission. Please enable it in Settings.")
+                    // Reminder every 15 seconds with clearer guidance
+                    if reminderCount % 30 == 0 && !permissionsManager.cameraStatus {
+                        await Narrator.shared.speakAndWait("Still waiting for camera. In Settings, find the Camera toggle and turn it ON. Tap the screen to re-open Settings.")
                     }
                 }
+                waitingForSettingsReturn = false
             }
         }
 
@@ -338,8 +356,9 @@ struct ConversationalSetupView: View {
                 }
             } else {
                 // Previously denied — must go to Settings
-                statusText = "Location Required"
-                await Narrator.shared.speakAndWait("Location is required. I'm opening Settings. Please enable Location for Seyeght, then come back.")
+                statusText = "Enable Location"
+                await Narrator.shared.speakAndWait("You previously denied location access. I'll open Settings now. Find Location and select While Using the App. Then swipe up and tap Seyeght to return. Tap anywhere to re-open Settings.")
+                waitingForSettingsReturn = true
                 await openSettings()
                 
                 // Keep polling and reminding
@@ -350,11 +369,12 @@ struct ConversationalSetupView: View {
                     permissionsManager.checkCurrentStatuses()
                     reminderCount += 1
                     
-                    // Reminder every 20 seconds
-                    if reminderCount % 40 == 0 && !permissionsManager.locationStatus {
-                        await Narrator.shared.speakAndWait("Still waiting for location permission. Please enable it in Settings.")
+                    // Reminder every 15 seconds with clearer guidance
+                    if reminderCount % 30 == 0 && !permissionsManager.locationStatus {
+                        await Narrator.shared.speakAndWait("Still waiting for location. In Settings, tap Location and select While Using the App. Tap the screen to re-open Settings.")
                     }
                 }
+                waitingForSettingsReturn = false
             }
         }
 
@@ -448,23 +468,32 @@ struct ConversationalSetupView: View {
             ].compactMap { $0 }.joined(separator: " and ")
 
             await Narrator.shared.speakWithOpenAIAndWait(
-                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then come back to the app."
+                "I really need \(missing) to keep you safe. I'm opening Settings now. Please enable \(missing) for Seyeght, then swipe up and tap Seyeght to return. Tap the screen anytime to re-open Settings."
             )
             guard !Task.isCancelled else { return }
 
+            waitingForSettingsReturn = true
             await openSettings()
 
             // Poll until they come back with permissions granted (or give up after 3 min)
+            var reminderCount = 0
             for _ in 0..<360 {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
+                reminderCount += 1
                 if permissionsManager.cameraStatus && permissionsManager.locationStatus {
+                    waitingForSettingsReturn = false
                     await Narrator.shared.speakWithOpenAIAndWait("Thank you. All permissions are ready. Let's continue.")
                     break
                 }
+                // Reminder every 20 seconds
+                if reminderCount % 40 == 0 {
+                    await Narrator.shared.speakWithOpenAIAndWait("Still waiting for \(missing). Tap the screen to re-open Settings.")
+                }
             }
 
+            waitingForSettingsReturn = false
             if !permissionsManager.cameraStatus || !permissionsManager.locationStatus {
                 await Narrator.shared.speakWithOpenAIAndWait(
                     "I still can't access what I need. The app will try again next time you open it."
@@ -529,21 +558,34 @@ struct ConversationalSetupView: View {
 
         // Previously denied — can't show dialog again
         if let deniedPrompt = alreadyDeniedPrompt {
-            await Narrator.shared.speakWithOpenAIAndWait(deniedPrompt)
+            // Give specific instructions for Settings navigation
+            let settingsGuidance = name == "Camera"
+                ? "Find the Camera toggle and turn it ON."
+                : "Tap Location and select While Using the App."
+            await Narrator.shared.speakWithOpenAIAndWait("\(deniedPrompt) \(settingsGuidance) Then swipe up and tap Seyeght to return. Tap the screen anytime to re-open Settings.")
             guard !Task.isCancelled else { return }
 
+            waitingForSettingsReturn = true
             await openSettings()
 
             // Wait for user to come back with permission enabled (up to 2 min)
+            var reminderCount = 0
             for _ in 0..<240 {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
                 permissionsManager.checkCurrentStatuses()
+                reminderCount += 1
                 if check() {
+                    waitingForSettingsReturn = false
                     await Narrator.shared.speakWithOpenAIAndWait(grantedMessage)
                     return
                 }
+                // Reminder every 15 seconds
+                if reminderCount % 30 == 0 {
+                    await Narrator.shared.speakWithOpenAIAndWait("Still waiting. \(settingsGuidance) Tap the screen to re-open Settings.")
+                }
             }
+            waitingForSettingsReturn = false
             await Narrator.shared.speakWithOpenAIAndWait(deniedMessage)
         } else {
             // Optional permission, previously denied — just skip

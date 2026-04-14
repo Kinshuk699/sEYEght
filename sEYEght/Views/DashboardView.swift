@@ -303,6 +303,9 @@ struct DashboardView: View {
     /// Speak distance when crossing key thresholds, and repeat if still in danger zone
     private func speakDistanceIfNeeded(_ distance: Float) {
         guard !isEmergencyActive else { return }
+        // Check if voice is enabled for automatic announcements
+        // (User-initiated speech like .navigable() and 4-tap bypass this)
+        guard settingsArray.first?.voiceEnabled ?? true else { return }
         // Suppress distance speech while a scene description is being read
         guard !isAnalyzingScene && Date() > sceneSpeechUntil else { return }
         // Don't interrupt an in-progress distance announcement — let it finish
@@ -368,7 +371,8 @@ struct DashboardView: View {
         if threshold <= 0.5 {
             proximityRepeatTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [self] _ in
                 let current = lidarManager.closestDistance
-                if current < 0.5 && !isEmergencyActive && !Narrator.shared.isSpeaking {
+                let voiceOn = settingsArray.first?.voiceEnabled ?? true
+                if current < 0.5 && !isEmergencyActive && !Narrator.shared.isSpeaking && voiceOn {
                     let msg = current < 0.3 ? "Still very close." : "Still close. About 2 feet."
                     speak(msg, priority: false)
                 } else {
