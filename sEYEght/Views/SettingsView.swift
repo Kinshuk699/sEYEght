@@ -13,6 +13,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(HapticsManager.self) private var hapticsManager
+    @Environment(AppState.self) private var appState
     @Query private var settingsArray: [UserSettings]
     @State private var navigateToSubscription = false
     @State private var navigateToSetup = false
@@ -185,6 +186,8 @@ struct SettingsView: View {
 
                 HapticButton("Redo Setup Tutorial") {
                     UserDefaults.standard.set(false, forKey: "setupComplete")
+                    appState.hasCompletedOnboarding = false
+                    appState.hasAnnouncedWelcomeThisSession = false
                     navigateToSetup = true
                 }
             }
