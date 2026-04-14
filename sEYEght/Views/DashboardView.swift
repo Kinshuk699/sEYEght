@@ -179,11 +179,13 @@ struct DashboardView: View {
             }
         }
         .contentShape(Rectangle())
+        // 4-tap has priority — SwiftUI waits to see if 4th tap comes before firing 3-tap
+        .highPriorityGesture(
+            TapGesture(count: 4)
+                .onEnded { handleSceneTap() }
+        )
         .onTapGesture(count: 3) {
             handleEmergencyTripleTap()
-        }
-        .onTapGesture(count: 4) {
-            handleSceneTap()
         }
         .onAppear {
             // Immediate haptic so blind user knows the screen loaded
@@ -399,10 +401,14 @@ struct DashboardView: View {
         // Strong haptic so user knows it registered
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
-
-        // Immediately speak location — no "mode", no delay
+        
+        print("[DashboardView] 📍 Triple-tap detected — requesting location")
+        
+        // Stop any current speech and announce we're getting location
+        Narrator.shared.stop()
+        
+        // Speak location (uses reverse geocoding, may take a moment)
         navigationManager.speakCurrentLocation()
-        print("[DashboardView] 📍 Triple-tap — speaking location")
     }
 
     // MARK: - Centralized Speech

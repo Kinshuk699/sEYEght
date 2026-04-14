@@ -404,9 +404,11 @@ struct ConversationalSetupView: View {
         await Narrator.shared.speakAndWait("Tap the screen four times quickly to hear what's in front of you.")
         guard !Task.isCancelled else { return }
 
+        try? await Task.sleep(for: .seconds(0.5))
         await Narrator.shared.speakAndWait("Triple-tap to hear your current location.")
         guard !Task.isCancelled else { return }
 
+        try? await Task.sleep(for: .seconds(0.5))
         await Narrator.shared.speakAndWait("To open settings, double-tap the bottom-left corner of your screen.")
     }
 
