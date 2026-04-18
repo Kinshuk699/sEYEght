@@ -341,11 +341,10 @@ struct DashboardView: View {
         }
         guard !isEmergencyActive else { return }
 
-        // Rate limit: minimum 8 seconds between analysis requests to avoid API flooding
+        // Rate limit: minimum 3 seconds between requests (on-device is fast but avoid spam)
         let timeSinceLast = Date().timeIntervalSince(lastAnalysisTime)
-        if timeSinceLast < 8.0 {
-            let waitTime = Int(ceil(8.0 - timeSinceLast))
-            speak("Please wait \(waitTime) seconds before asking again.", priority: false)
+        if timeSinceLast < 3.0 {
+            speak("Please wait.", priority: false)
             return
         }
         lastAnalysisTime = Date()
@@ -353,39 +352,15 @@ struct DashboardView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
-        #if DEBUG
-        // Reset free uses for testing
-        subscriptionManager.resetFreeUsesForTesting()
-        #endif
-
-        guard subscriptionManager.canUseAIVision else {
-            // Free uses exhausted and not subscribed
-            speak("You've used all 3 free descriptions today. Subscribe to AI Vision for unlimited access.")
-            navigateToSubscription = true
-            print("[DashboardView] Free uses exhausted — navigating to paywall")
-            return
-        }
-
-        // Consume a free use if not subscribed
-        if !subscriptionManager.isSubscribed {
-            _ = subscriptionManager.consumeFreeUse()
-            let remaining = subscriptionManager.freeUsesRemaining
-            let countMsg = remaining > 0 ? "\(remaining) free descriptions remaining today." : "That was your last free description today."
-            // Speak remaining count after the scene description
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-                speak(countMsg)
-            }
-        }
-
         isAnalyzingScene = true
         speak("Looking...")
-        print("[DashboardView] Capturing scene for AI analysis")
+        print("[DashboardView] Capturing scene for on-device analysis")
 
         visionManager.captureAndAnalyze(from: lidarManager.session)
 
         // Wait for VisionManager to finish processing, then clear the flag
         Task {
-            for _ in 0..<60 { // up to 30 seconds
+            for _ in 0..<20 { // up to 10 seconds (on-device is fast)
                 try? await Task.sleep(for: .milliseconds(500))
                 if !visionManager.isProcessing { break }
             }

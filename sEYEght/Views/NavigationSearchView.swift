@@ -125,11 +125,14 @@ struct NavigationSearchView: View {
             }
         }
         .onAppear {
-            // Auto-focus the text field — iOS dictation keyboard is available for voice input
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isTextFieldFocused = true
+            // Focus text field immediately so keyboard appears right away
+            isTextFieldFocused = true
+            // Speak instruction after a short delay so it doesn't block keyboard input
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                Narrator.shared.speak("Type a destination or use dictation.", rate: 0.5, volume: 0.85)
             }
-            Narrator.shared.speak("Search for a destination. Type or use dictation on the keyboard.", rate: 0.45, volume: 0.85)
         }
     }
 

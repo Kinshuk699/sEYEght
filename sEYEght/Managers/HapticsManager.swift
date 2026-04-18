@@ -18,7 +18,7 @@ final class HapticsManager {
     private var isSetup = false
 
     /// User-configurable intensity multiplier (0.0 to 1.0)
-    var userIntensityLevel: Double = 0.5
+    var userIntensityLevel: Double = 1.0
 
     /// Whether haptic vibrations are enabled (user can toggle)
     var hapticsEnabled: Bool = true
@@ -180,13 +180,14 @@ final class HapticsManager {
 
         guard intensity > 0.05 else { return }
 
-        // UIImpactFeedbackGenerator — works reliably without AVAudioEngine mic tap
-        if intensity > 0.6 {
-            heavyGenerator.impactOccurred()
-        } else if intensity > 0.3 {
-            mediumGenerator.impactOccurred()
+        // UIImpactFeedbackGenerator — always use the strongest possible
+        // Distance-based: < 0.5m = heavy, < 1.0m = medium, else light
+        if distance < 0.5 {
+            heavyGenerator.impactOccurred(intensity: 1.0)
+        } else if distance < 1.0 {
+            mediumGenerator.impactOccurred(intensity: 1.0)
         } else {
-            lightGenerator.impactOccurred()
+            lightGenerator.impactOccurred(intensity: 1.0)
         }
         print("[HapticsManager] \u{2705} Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity))")
     }

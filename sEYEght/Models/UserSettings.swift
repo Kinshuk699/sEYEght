@@ -11,7 +11,7 @@ import SwiftData
 @Model
 final class UserSettings {
     /// Haptic intensity level: 0.0 (off) to 1.0 (max)
-    var hapticIntensityLevel: Double = 0.5
+    var hapticIntensityLevel: Double = 1.0
 
     /// Maximum radar detection range in meters
     var radarRangeMeters: Double = 1.5

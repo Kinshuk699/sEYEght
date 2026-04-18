@@ -6,13 +6,14 @@
 //
 
 import ARKit
-import AVFoundation
+import Vision
 #if canImport(UIKit)
 import UIKit
 #endif
 
-/// F-005: LLM Vision Pipeline.
-/// Captures ARFrame → compresses → sends to GPT-4o Vision → speaks result.
+/// F-005: On-Device Vision Pipeline.
+/// Captures ARFrame → runs Apple Vision framework requests → speaks result.
+/// Works completely offline — no internet, no API key, no subscription needed.
 @Observable
 final class VisionManager {
     var isProcessing = false
@@ -21,15 +22,10 @@ final class VisionManager {
     /// Callback so Dashboard can speak through its single synthesizer
     var onSpeechRequest: ((String) -> Void)?
 
-    private var apiKey: String {
-        // Read from Secrets.swift (generated from Config.xcconfig, excluded from git)
-        return SeyeghtSecrets.openAIKey
-    }
-
     /// Speech rate set from user settings
     var speechRate: Float = 0.5
 
-    /// Capture current AR frame, compress, send to OpenAI, speak result.
+    /// Capture current AR frame and analyze on-device with Apple Vision framework.
     func captureAndAnalyze(from session: ARSession?) {
         guard !isProcessing else {
             print("[VisionManager] Already processing, skipping")
@@ -39,24 +35,14 @@ final class VisionManager {
         // Try to get a frame — retry briefly if AR just started
         var frame: ARFrame? = session?.currentFrame
         if frame == nil {
-            // AR may not have a frame yet — wait briefly
             print("[VisionManager] No frame yet, will retry")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self = self, !self.isProcessing else { return }
                 if let f = session?.currentFrame {
                     self.isProcessing = true
-                    print("[VisionManager] Capturing frame for analysis (retry)")
-                    let pixelBuffer = f.capturedImage
-                    if let jpegData = self.compressFrame(pixelBuffer) {
-                        print("[VisionManager] Compressed to \(jpegData.count) bytes, sending to API")
-                        self.sendToOpenAI(imageData: jpegData)
-                    } else {
-                        print("[VisionManager] ❌ Failed to compress frame")
-                        self.isProcessing = false
-                        self.speakText("Couldn't capture the camera image. Try again.")
-                    }
+                    self.analyzeFrame(f)
                 } else {
-                    print("[VisionManager] ❌ No current AR frame available after retry")
+                    print("[VisionManager] \u{274c} No current AR frame available after retry")
                     self.speakText("Camera not ready yet. Try again in a moment.")
                 }
             }
@@ -64,155 +50,97 @@ final class VisionManager {
         }
 
         isProcessing = true
-        print("[VisionManager] Capturing frame for analysis")
-
-        let pixelBuffer = frame!.capturedImage
-
-        guard let jpegData = compressFrame(pixelBuffer) else {
-            print("[VisionManager] ❌ Failed to compress frame")
-            isProcessing = false
-            speakText("Couldn't capture the camera image. Try again.")
-            return
-        }
-
-        print("[VisionManager] Compressed to \(jpegData.count) bytes, sending to API")
-        sendToOpenAI(imageData: jpegData)
+        print("[VisionManager] Capturing frame for on-device analysis")
+        analyzeFrame(frame!)
     }
 
-    private func compressFrame(_ pixelBuffer: CVPixelBuffer) -> Data? {
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return nil }
+    private func analyzeFrame(_ frame: ARFrame) {
+        let pixelBuffer = frame.capturedImage
 
-        let uiImage = UIImage(cgImage: cgImage)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
 
-        // Scale to max 512px width
-        let maxWidth: CGFloat = 512
-        let scale = min(1.0, maxWidth / uiImage.size.width)
-        let newSize = CGSize(width: uiImage.size.width * scale, height: uiImage.size.height * scale)
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
 
-        UIGraphicsBeginImageContextWithOptions(newSize, true, 1.0)
-        uiImage.draw(in: CGRect(origin: .zero, size: newSize))
-        let scaledImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
+            // 1. Scene classification
+            let classifyRequest = VNClassifyImageRequest()
 
-        return scaledImage?.jpegData(compressionQuality: 0.3)
-    }
+            // 2. Text recognition (signs, labels)
+            let textRequest = VNRecognizeTextRequest()
+            textRequest.recognitionLevel = .fast
 
-    private func sendToOpenAI(imageData: Data) {
-        let base64Image = imageData.base64EncodedString()
+            // 3. Human detection
+            let humanRequest = VNDetectHumanRectanglesRequest()
 
-        guard !apiKey.isEmpty && apiKey != "sk-your-key-here" else {
-            print("[VisionManager] ❌ No valid API key configured")
-            isProcessing = false
-            speakText("I'm having trouble with my vision system. Please try again.")
-            return
-        }
-
-        print("[VisionManager] API key configured (\(apiKey.count) chars)")
-
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15.0
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = [
-            "model": "gpt-4o",
-            "messages": [
-                [
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "text",
-                            "text": "You are navigating a blind person. Describe the immediate scene in front of them in less than 15 words. Focus only on critical obstacles, signage, or the structural layout."
-                        ],
-                        [
-                            "type": "image_url",
-                            "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]
-                        ]
-                    ]
-                ]
-            ],
-            "max_tokens": 60
-        ]
-
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                self?.isProcessing = false
-
-                if let error = error {
-                    let nsError = error as NSError
-                    if nsError.domain == NSURLErrorDomain {
-                        switch nsError.code {
-                        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
-                            print("[VisionManager] ❌ No internet connection")
-                            self?.speakText("No internet connection. I need internet to describe your surroundings.")
-                        case NSURLErrorTimedOut:
-                            print("[VisionManager] ❌ Request timed out")
-                            self?.speakText("The request timed out. Try again.")
-                        default:
-                            print("[VisionManager] ❌ Network error: \(error.localizedDescription)")
-                            self?.speakText("Network error. Check your connection and try again.")
-                        }
-                    } else {
-                        print("[VisionManager] ❌ API error: \(error.localizedDescription)")
-                        self?.speakText("Sorry, I couldn't analyze the scene right now.")
-                    }
-                    return
+            do {
+                try handler.perform([classifyRequest, textRequest, humanRequest])
+            } catch {
+                print("[VisionManager] \u{274c} Vision analysis failed: \(error)")
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.speakText("Couldn't analyze the scene. Try again.")
                 }
-
-                // Check HTTP status for API-specific errors
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                    print("[VisionManager] ❌ HTTP \(httpResponse.statusCode)")
-                    if let data = data, let raw = String(data: data, encoding: .utf8) {
-                        print("[VisionManager] Response body: \(raw.prefix(300))")
-                    }
-                    switch httpResponse.statusCode {
-                    case 401:
-                        self?.speakText("My vision system needs reconfiguration. The API key may be invalid.")
-                    case 429:
-                        // Check if it's quota exhaustion vs actual rate limiting
-                        if let data = data, let raw = String(data: data, encoding: .utf8),
-                           raw.contains("insufficient_quota") {
-                            self?.speakText("Your A I credits have run out. Please add billing to your OpenAI account, or update the API key.")
-                        } else {
-                            self?.speakText("Too many requests right now. Please wait a moment and try again.")
-                        }
-                    case 500...599:
-                        self?.speakText("The vision service is temporarily down. Try again in a moment.")
-                    default:
-                        self?.speakText("Sorry, something went wrong analyzing the scene.")
-                    }
-                    return
-                }
-
-                guard let data = data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let choices = json["choices"] as? [[String: Any]],
-                      let message = choices.first?["message"] as? [String: Any],
-                      let content = message["content"] as? String else {
-                    // Log the raw response for debugging
-                    if let data = data, let raw = String(data: data, encoding: .utf8) {
-                        print("[VisionManager] ❌ Raw API response: \(raw.prefix(500))")
-                    }
-                    if let httpResponse = response as? HTTPURLResponse {
-                        print("[VisionManager] ❌ HTTP status: \(httpResponse.statusCode)")
-                    }
-                    print("[VisionManager] ❌ Failed to parse API response")
-                    self?.speakText("Sorry, I couldn't understand the response.")
-                    return
-                }
-
-                let description = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                self?.lastDescription = description
-                print("[VisionManager] ✅ Scene description: \(description)")
-                self?.speakText(description)
+                return
             }
-        }.resume()
+
+            // Build description from results
+            var parts: [String] = []
+
+            // Scene classifications (top results above 20% confidence)
+            if let classifications = classifyRequest.results {
+                let top = classifications
+                    .filter { $0.confidence > 0.2 }
+                    .prefix(4)
+                    .map { self.humanReadableLabel($0.identifier) }
+
+                if !top.isEmpty {
+                    parts.append(top.joined(separator: ", "))
+                }
+            }
+
+            // People count
+            if let humans = humanRequest.results, !humans.isEmpty {
+                let count = humans.count
+                if count == 1 {
+                    parts.append("1 person")
+                } else {
+                    parts.append("\(count) people")
+                }
+            }
+
+            // Text detected
+            if let textResults = textRequest.results {
+                let texts = textResults
+                    .compactMap { $0.topCandidates(1).first?.string }
+                    .prefix(3)
+
+                if !texts.isEmpty {
+                    let textStr = texts.joined(separator: ", ")
+                    parts.append("text reads: \(textStr)")
+                }
+            }
+
+            let description: String
+            if parts.isEmpty {
+                description = "I can't identify anything specific in front of you right now."
+            } else {
+                description = parts.joined(separator: ". ") + "."
+            }
+
+            print("[VisionManager] \u{2705} On-device scene: \(description)")
+
+            DispatchQueue.main.async {
+                self.lastDescription = description
+                self.isProcessing = false
+                self.speakText(description)
+            }
+        }
+    }
+
+    /// Convert Vision taxonomy identifiers to natural spoken labels.
+    /// e.g. "office_building" → "office building", "dining_table" → "dining table"
+    private func humanReadableLabel(_ identifier: String) -> String {
+        identifier.replacingOccurrences(of: "_", with: " ")
     }
 
     private func speakText(_ text: String) {
