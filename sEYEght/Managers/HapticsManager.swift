@@ -33,9 +33,9 @@ final class HapticsManager {
     var maxRange: Double = 1.5
 
     // MARK: - UIKit Haptic Generators
-    private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
-    private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
     private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    private let rigidGenerator = UIImpactFeedbackGenerator(style: .rigid)
+    private let notificationGenerator = UINotificationFeedbackGenerator()
 
     // MARK: - Audio Tone Properties
 
@@ -56,9 +56,9 @@ final class HapticsManager {
 
     init() {
         // Pre-warm the generators so first haptic fires instantly
-        lightGenerator.prepare()
-        mediumGenerator.prepare()
         heavyGenerator.prepare()
+        rigidGenerator.prepare()
+        notificationGenerator.prepare()
     }
 
     func ensureEngine() {
@@ -144,9 +144,8 @@ final class HapticsManager {
         }
     }
 
-    /// Throttle: max 5 haptic events per second
+    /// Throttle: max 10 haptic events per second for close, 5 for far
     private var lastHapticTime: Date = .distantPast
-    private let hapticInterval: TimeInterval = 0.2  // 5 per second
 
     /// Update haptic feedback AND audio tone based on obstacle distance and direction.
     /// `normalizedX`: 0.0 = far left, 0.5 = center, 1.0 = far right
@@ -171,6 +170,8 @@ final class HapticsManager {
         // Haptics — throttled to avoid rate-limit warnings and respects user preference
         guard hapticsEnabled else { return }
         let now = Date()
+        // Faster haptic rate when closer: <0.5m = 10/sec, otherwise 5/sec
+        let hapticInterval: TimeInterval = distance < 0.5 ? 0.1 : 0.2
         guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
         lastHapticTime = now
         guard withinRange else { return }
@@ -180,15 +181,23 @@ final class HapticsManager {
 
         guard intensity > 0.05 else { return }
 
-        // UIImpactFeedbackGenerator — always use the strongest possible
-        // Distance-based: < 0.5m = heavy, < 1.0m = medium, else light
-        if distance < 0.5 {
-            heavyGenerator.impactOccurred(intensity: 1.0)
-        } else if distance < 1.0 {
-            mediumGenerator.impactOccurred(intensity: 1.0)
-        } else {
-            lightGenerator.impactOccurred(intensity: 1.0)
+        // Always fire heavy generator at max intensity for strongest feedback
+        heavyGenerator.impactOccurred(intensity: 1.0)
+
+        // Danger zone (<0.3m): also fire rigid generator + notification for extreme vibration
+        if distance < 0.3 {
+            rigidGenerator.impactOccurred(intensity: 1.0)
+            notificationGenerator.notificationOccurred(.error)
+        } else if distance < 0.5 {
+            // Close range: double-hit with rigid for extra punch
+            rigidGenerator.impactOccurred(intensity: 1.0)
         }
+
+        // Re-prepare generators for next fire
+        heavyGenerator.prepare()
+        rigidGenerator.prepare()
+        notificationGenerator.prepare()
+
         print("[HapticsManager] \u{2705} Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity))")
     }
 
