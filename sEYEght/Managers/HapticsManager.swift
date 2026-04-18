@@ -7,12 +7,12 @@
 
 import CoreHaptics
 import AVFoundation
+import UIKit
 
 /// F-002: Dynamic Haptic & Audio Radar.
 /// Maps closest depth point to haptic intensity AND an audio proximity tone.
-/// Uses CHHapticEngine with playsHapticsOnly=true — this makes the haptic engine
-/// completely independent of the audio session, so AVAudioEngine's .playAndRecord
-/// category cannot suppress or kill the haptics.
+/// With no AVAudioEngine mic input tap in the app, UIImpactFeedbackGenerator
+/// works reliably without suppression.
 @Observable
 final class HapticsManager {
     private var isSetup = false
@@ -32,9 +32,10 @@ final class HapticsManager {
     /// Maximum detection range in meters
     var maxRange: Double = 1.5
 
-    // MARK: - CoreHaptics Engine (playsHapticsOnly — independent of audio session)
-    private var hapticEngine: CHHapticEngine?
-    private var supportsHaptics: Bool = false
+    // MARK: - UIKit Haptic Generators
+    private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
 
     // MARK: - Audio Tone Properties
 
@@ -53,88 +54,20 @@ final class HapticsManager {
     /// Stereo panning: -1.0 = full left, 0.0 = center, 1.0 = full right
     private var tonePan: Float = 0.0
 
-    init() {}
+    init() {
+        // Pre-warm the generators so first haptic fires instantly
+        lightGenerator.prepare()
+        mediumGenerator.prepare()
+        heavyGenerator.prepare()
+    }
 
     func ensureEngine() {
         guard !isSetup else { return }
         isSetup = true
-
-        // Setup CoreHaptics engine independently of audio session
-        supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
-        if supportsHaptics {
-            setupHapticEngine()
-        } else {
-            print("[HapticsManager] \u{26a0}\u{fe0f} Device doesn't support haptics")
-        }
-
-        print("[HapticsManager] \u{2705} Engine setup, supportsHaptics=\(supportsHaptics), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
-
+        print("[HapticsManager] \u{2705} Engine setup (UIImpactFeedbackGenerator), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
         // Only start the beep audio engine if the user has enabled beeps
         if audioToneEnabled {
             setupAudioTone()
-        }
-    }
-
-    // MARK: - CoreHaptics Setup
-
-    private func setupHapticEngine() {
-        do {
-            let engine = try CHHapticEngine()
-            engine.playsHapticsOnly = true          // KEY: Don't touch audio session
-            engine.isAutoShutdownEnabled = false     // Keep running while app is active
-
-            engine.stoppedHandler = { [weak self] reason in
-                print("[HapticsManager] Engine stopped (reason: \(reason.rawValue)), will restart")
-                DispatchQueue.main.async {
-                    self?.restartHapticEngine()
-                }
-            }
-
-            engine.resetHandler = { [weak self] in
-                print("[HapticsManager] Engine reset, restarting")
-                do {
-                    try self?.hapticEngine?.start()
-                } catch {
-                    print("[HapticsManager] \u{274c} Failed to restart after reset: \(error)")
-                }
-            }
-
-            try engine.start()
-            self.hapticEngine = engine
-            print("[HapticsManager] \u{2705} CHHapticEngine started (playsHapticsOnly=true)")
-        } catch {
-            print("[HapticsManager] \u{274c} CHHapticEngine init failed: \(error)")
-        }
-    }
-
-    private func restartHapticEngine() {
-        hapticEngine = nil
-        setupHapticEngine()
-    }
-
-    private func fireHaptic(intensity: Float, sharpness: Float) {
-        guard let engine = hapticEngine else {
-            print("[HapticsManager] \u{26a0}\u{fe0f} No haptic engine, restarting")
-            setupHapticEngine()
-            return
-        }
-
-        let event = CHHapticEvent(
-            eventType: .hapticTransient,
-            parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
-            ],
-            relativeTime: 0
-        )
-
-        do {
-            let pattern = try CHHapticPattern(events: [event], parameters: [])
-            let player = try engine.makePlayer(with: pattern)
-            try player.start(atTime: CHHapticTimeImmediate)
-        } catch {
-            print("[HapticsManager] \u{274c} Haptic play failed: \(error), restarting engine")
-            restartHapticEngine()
         }
     }
 
@@ -247,9 +180,14 @@ final class HapticsManager {
 
         guard intensity > 0.05 else { return }
 
-        // CHHapticEngine with playsHapticsOnly=true — completely decoupled from audio session.
-        // Cannot be suppressed by AVAudioEngine's .playAndRecord category.
-        fireHaptic(intensity: Float(intensity), sharpness: Float(intensity))
+        // UIImpactFeedbackGenerator — works reliably without AVAudioEngine mic tap
+        if intensity > 0.6 {
+            heavyGenerator.impactOccurred()
+        } else if intensity > 0.3 {
+            mediumGenerator.impactOccurred()
+        } else {
+            lightGenerator.impactOccurred()
+        }
         print("[HapticsManager] \u{2705} Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity))")
     }
 

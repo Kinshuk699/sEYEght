@@ -33,7 +33,7 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
     var onSpeechRequest: ((String) -> Void)?
     /// Callback for priority speech (interrupts current)
     var onPrioritySpeechRequest: ((String) -> Void)?
-    /// Callback to sync selection state to SpeechManager
+    /// Callback to sync selection state
     var onSelectionStateChanged: ((Bool) -> Void)?
     private var currentStepIndex = 0
     /// Track if user has been warned about being off-course recently

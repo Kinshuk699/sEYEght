@@ -7,27 +7,19 @@
 
 import SwiftUI
 import MapKit
-import Speech
 
-/// Navigation search screen: text field + mic button to find a destination.
+/// Navigation search screen: text field to find a destination.
+/// Blind users use iOS built-in voice dictation keyboard to type by voice.
 /// Single tap reads a result aloud; double-tap confirms and starts routing.
 struct NavigationSearchView: View {
     @Environment(NavigationManager.self) private var navigationManager
-    @Environment(SpeechManager.self) private var speechManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
-    @State private var isListening = false
     @State private var selectedIndex: Int? = nil
     @State private var hasStartedRoute = false
-
-    // Speech recognition for mic button
-    @State private var speechRecognizer = SFSpeechRecognizer()
-    @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    @State private var recognitionTask: SFSpeechRecognitionTask?
-    @State private var micAudioEngine = AVAudioEngine()
 
     @FocusState private var isTextFieldFocused: Bool
 
@@ -44,73 +36,42 @@ struct NavigationSearchView: View {
                     .padding(.top, 16)
                     .accessibilityAddTraits(.isHeader)
 
-                // Search bar + mic button
-                HStack(spacing: 12) {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(SeyeghtTheme.secondaryText)
-                            .accessibilityHidden(true)
+                // Search bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(SeyeghtTheme.secondaryText)
+                        .accessibilityHidden(true)
 
-                        TextField("Search destination", text: $searchText)
-                            .font(SeyeghtTheme.body)
-                            .foregroundColor(SeyeghtTheme.primaryText)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.words)
-                            .focused($isTextFieldFocused)
-                            .submitLabel(.search)
-                            .onSubmit {
-                                performSearch()
-                            }
-                            .accessibilityLabel("Search destination")
-                            .accessibilityHint("Type a place name and press search")
-
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                                searchResults = []
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(SeyeghtTheme.secondaryText)
-                            }
-                            .accessibilityLabel("Clear search")
+                    TextField("Search destination", text: $searchText)
+                        .font(SeyeghtTheme.body)
+                        .foregroundColor(SeyeghtTheme.primaryText)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.words)
+                        .focused($isTextFieldFocused)
+                        .submitLabel(.search)
+                        .onSubmit {
+                            performSearch()
                         }
-                    }
-                    .padding(12)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(12)
+                        .accessibilityLabel("Search destination")
+                        .accessibilityHint("Type a place name and press search. Use dictation on the keyboard to speak.")
 
-                    // Mic button
-                    Button {
-                        if isListening {
-                            stopMicListening()
-                        } else {
-                            startMicListening()
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            searchResults = []
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(SeyeghtTheme.secondaryText)
                         }
-                    } label: {
-                        Image(systemName: isListening ? "mic.fill" : "mic")
-                            .font(.system(size: 20))
-                            .foregroundColor(isListening ? .red : SeyeghtTheme.accent)
-                            .padding(12)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(Circle())
+                        .accessibilityLabel("Clear search")
                     }
-                    .accessibilityLabel(isListening ? "Stop listening" : "Speak destination")
-                    .accessibilityHint(isListening ? "Double tap to stop" : "Double tap to speak a destination")
                 }
+                .padding(12)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(12)
 
                 // Status text
-                if isListening {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
-                        Text("Listening...")
-                            .font(SeyeghtTheme.caption)
-                            .foregroundColor(SeyeghtTheme.secondaryText)
-                    }
-                    .accessibilityLabel("Listening for destination")
-                } else if isSearching {
+                if isSearching {
                     Text("Searching...")
                         .font(SeyeghtTheme.caption)
                         .foregroundColor(SeyeghtTheme.secondaryText)
@@ -136,7 +97,7 @@ struct NavigationSearchView: View {
                             }
                         }
                     }
-                } else if !searchText.isEmpty && !isSearching && !isListening {
+                } else if !searchText.isEmpty && !isSearching {
                     Text("No results found")
                         .font(SeyeghtTheme.body)
                         .foregroundColor(SeyeghtTheme.secondaryText)
@@ -151,7 +112,6 @@ struct NavigationSearchView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
-                    stopMicListening()
                     dismiss()
                 } label: {
                     HStack(spacing: 4) {
@@ -165,19 +125,11 @@ struct NavigationSearchView: View {
             }
         }
         .onAppear {
-            // Stop SpeechManager to release the mic for NavigationSearchView's local engine
-            speechManager.stopListening()
-
-            // Auto-focus the text field
+            // Auto-focus the text field — iOS dictation keyboard is available for voice input
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isTextFieldFocused = true
             }
-            Narrator.shared.speak("Search for a destination. Type or tap the microphone to speak.", rate: 0.45, volume: 0.85)
-        }
-        .onDisappear {
-            stopMicListening()
-            // Restart SpeechManager so wake-word detection resumes on Dashboard
-            speechManager.startListening()
+            Narrator.shared.speak("Search for a destination. Type or use dictation on the keyboard.", rate: 0.45, volume: 0.85)
         }
     }
 
@@ -267,100 +219,6 @@ struct NavigationSearchView: View {
                 dismiss()
             }
         }
-    }
-
-    // MARK: - Mic Listening
-
-    private func startMicListening() {
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            Narrator.shared.speak("Speech recognition is not available.", rate: 0.45, volume: 0.85)
-            return
-        }
-
-        isListening = true
-        isTextFieldFocused = false
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        recognitionRequest = request
-
-        let inputNode = micAudioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
-            isListening = false
-            Narrator.shared.speak("Microphone not available.", rate: 0.45, volume: 0.85)
-            return
-        }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            recognitionRequest?.append(buffer)
-        }
-
-        do {
-            try micAudioEngine.start()
-        } catch {
-            isListening = false
-            return
-        }
-
-        // Auto-stop after 5 seconds of listening
-        let autoStopTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, isListening else { return }
-            stopMicListening()
-            if !searchText.isEmpty {
-                performSearch()
-            }
-        }
-
-        recognitionTask = recognizer.recognitionTask(with: request) { [self] result, error in
-            if let result = result {
-                let text = result.bestTranscription.formattedString
-                Task { @MainActor in
-                    searchText = text
-                }
-
-                // If final result, stop and search
-                if result.isFinal {
-                    autoStopTask.cancel()
-                    Task { @MainActor in
-                        stopMicListening()
-                        performSearch()
-                    }
-                }
-            }
-
-            if let error = error {
-                let nsError = error as NSError
-                // Ignore "no speech" timeout
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    autoStopTask.cancel()
-                    Task { @MainActor in
-                        stopMicListening()
-                        if !searchText.isEmpty {
-                            performSearch()
-                        }
-                    }
-                }
-            }
-        }
-
-        Narrator.shared.stop()
-        // Small haptic to confirm mic is on
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-    }
-
-    private func stopMicListening() {
-        guard isListening else { return }
-        isListening = false
-
-        micAudioEngine.stop()
-        micAudioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
     }
 
     // MARK: - Helpers

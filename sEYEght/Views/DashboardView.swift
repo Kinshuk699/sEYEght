@@ -19,7 +19,6 @@ struct DashboardView: View {
     @Environment(VisionManager.self) private var visionManager
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(SubscriptionManager.self) private var subscriptionManager
-    @Environment(SpeechManager.self) private var speechManager
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsArray: [UserSettings]
 
@@ -229,7 +228,7 @@ struct DashboardView: View {
                 // Returning from background/settings — restart hardware + re-sync settings
                 do {
                     let session = AVAudioSession.sharedInstance()
-                    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                    try session.setCategory(.playback, mode: .default, options: [.duckOthers, .mixWithOthers])
                     try session.setActive(true)
                 } catch {
                     print("[DashboardView] Audio session re-config failed: \(error)")
@@ -246,7 +245,6 @@ struct DashboardView: View {
 
                 lidarManager.start()
                 hapticsManager.ensureEngine()
-                speechManager.startListening()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
                 return
@@ -276,11 +274,10 @@ struct DashboardView: View {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
 
-                // Configure audio session ONCE before any engine starts
-                // Must be .playAndRecord so SpeechManager mic + HapticsManager tones coexist
+                // Configure audio session for playback (speech + tones, no mic needed)
                 do {
                     let session = AVAudioSession.sharedInstance()
-                    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                    try session.setCategory(.playback, mode: .default, options: [.duckOthers, .mixWithOthers])
                     try session.setActive(true)
                 } catch {
                     print("[DashboardView] ❌ Audio session config failed: \(error)")
@@ -293,14 +290,6 @@ struct DashboardView: View {
                 visionManager.onSpeechRequest = { text in speakNatural(text) }
                 navigationManager.onSpeechRequest = { text in speak(text) }
                 navigationManager.onPrioritySpeechRequest = { text in speak(text, priority: true) }
-
-                // Wire voice commands from SpeechManager
-                speechManager.onHelpDetected = { speakHelp() }
-                speechManager.onWakeWordDetected = { handleSceneTap() }
-                speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
-
-                // Start voice recognition
-                speechManager.startListening()
 
                 // Start shake detection
                 ShakeDetector.shared.start()
