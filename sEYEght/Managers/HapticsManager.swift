@@ -21,8 +21,8 @@ final class HapticsManager {
     /// Whether haptic vibrations are enabled (user can toggle)
     var hapticsEnabled: Bool = true
 
-    /// Whether audio proximity tones are enabled (user can toggle)
-    var audioToneEnabled: Bool = true
+    /// Whether audio proximity tones are enabled (off by default, user enables in Settings)
+    var audioToneEnabled: Bool = false
 
     /// Volume of the proximity beep tone: 0.0 (silent) to 1.0 (full)
     var audioToneVolume: Float = 0.04
@@ -55,7 +55,27 @@ final class HapticsManager {
         guard !isSetup else { return }
         isSetup = true
         setupEngine()
+        // Only start the beep audio engine if the user has enabled beeps
+        if audioToneEnabled {
+            setupAudioTone()
+        }
+    }
+
+    /// Start the beep audio engine on demand (called when user enables beeps in Settings)
+    func startAudioToneIfNeeded() {
+        guard audioToneEnabled, audioEngine == nil else { return }
         setupAudioTone()
+    }
+
+    /// Stop the beep audio engine (called when user disables beeps in Settings)
+    func stopAudioTone() {
+        audioEngine?.stop()
+        if let node = toneSourceNode {
+            audioEngine?.detach(node)
+        }
+        audioEngine = nil
+        toneSourceNode = nil
+        toneFrequency = 0
     }
 
     /// Force-restart the haptic engine (call on return from background/settings)

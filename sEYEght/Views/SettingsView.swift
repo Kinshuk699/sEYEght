@@ -63,6 +63,11 @@ struct SettingsView: View {
                             }
                             settings.beepsEnabled = newValue
                             hapticsManager.audioToneEnabled = newValue
+                            if newValue {
+                                hapticsManager.startAudioToneIfNeeded()
+                            } else {
+                                hapticsManager.stopAudioTone()
+                            }
                             speakSettingChange(newValue ? "Beeps on" : "Beeps off")
                             try? modelContext.save()
                         }

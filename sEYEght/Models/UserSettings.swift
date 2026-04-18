@@ -30,8 +30,8 @@ final class UserSettings {
     /// Voice narration enabled (AI descriptions, alerts, UI reading)
     var voiceEnabled: Bool = true
 
-    /// Proximity beep tones enabled
-    var beepsEnabled: Bool = true
+    /// Proximity beep tones enabled (off by default — user can enable in Settings)
+    var beepsEnabled: Bool = false
 
     /// Haptic vibration feedback enabled
     var hapticsEnabled: Bool = true

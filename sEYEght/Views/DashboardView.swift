@@ -246,8 +246,9 @@ struct DashboardView: View {
 
                 lidarManager.start()
                 hapticsManager.ensureEngine()
-                hapticsManager.restartHapticEngine()
                 speechManager.startListening()
+                // Force-restart haptic engine AFTER speech engine starts
+                hapticsManager.restartHapticEngine()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
                 return
@@ -302,6 +303,10 @@ struct DashboardView: View {
 
                 // Start voice recognition
                 speechManager.startListening()
+
+                // Force-restart haptic engine AFTER speech engine starts
+                // (AVAudioEngine for mic can kill CHHapticEngine)
+                hapticsManager.restartHapticEngine()
 
                 // Start shake detection
                 ShakeDetector.shared.start()
