@@ -367,13 +367,16 @@ struct ConversationalSetupView: View {
                 waitingForSettingsReturn = true
                 await openSettings()
                 
-                // Keep polling and reminding
+                // Keep polling and reminding (max 5 minutes)
                 var reminderCount = 0
                 while !permissionsManager.locationStatus {
                     try? await Task.sleep(for: .milliseconds(500))
                     guard !Task.isCancelled else { return }
                     permissionsManager.checkCurrentStatuses()
                     reminderCount += 1
+                    
+                    // Timeout after 5 minutes (600 iterations × 500ms)
+                    if reminderCount >= 600 { break }
                     
                     // Reminder every 15 seconds with clearer guidance
                     if reminderCount % 30 == 0 && !permissionsManager.locationStatus {

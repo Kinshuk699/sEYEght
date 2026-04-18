@@ -13,6 +13,7 @@ import Speech
 /// Single tap reads a result aloud; double-tap confirms and starts routing.
 struct NavigationSearchView: View {
     @Environment(NavigationManager.self) private var navigationManager
+    @Environment(SpeechManager.self) private var speechManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchText = ""
@@ -164,6 +165,9 @@ struct NavigationSearchView: View {
             }
         }
         .onAppear {
+            // Stop SpeechManager to release the mic for NavigationSearchView's local engine
+            speechManager.stopListening()
+
             // Auto-focus the text field
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isTextFieldFocused = true
@@ -172,6 +176,8 @@ struct NavigationSearchView: View {
         }
         .onDisappear {
             stopMicListening()
+            // Restart SpeechManager so wake-word detection resumes on Dashboard
+            speechManager.startListening()
         }
     }
 

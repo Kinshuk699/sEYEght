@@ -246,6 +246,7 @@ struct DashboardView: View {
 
                 lidarManager.start()
                 hapticsManager.ensureEngine()
+                hapticsManager.restartHapticEngine()
                 speechManager.startListening()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()

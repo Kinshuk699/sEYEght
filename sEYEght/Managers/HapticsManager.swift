@@ -58,6 +58,19 @@ final class HapticsManager {
         setupAudioTone()
     }
 
+    /// Force-restart the haptic engine (call on return from background/settings)
+    func restartHapticEngine() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        do {
+            try engine?.start()
+            print("[HapticsManager] ✅ Haptic engine restarted")
+        } catch {
+            print("[HapticsManager] Engine restart failed, recreating: \(error)")
+            engine = nil
+            setupEngine()
+        }
+    }
+
     private func setupEngine() {
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
             print("[HapticsManager] ❌ Device does not support haptics")
@@ -69,6 +82,13 @@ final class HapticsManager {
             engine?.resetHandler = { [weak self] in
                 print("[HapticsManager] Engine reset, restarting")
                 try? self?.engine?.start()
+            }
+            engine?.stoppedHandler = { [weak self] reason in
+                print("[HapticsManager] ⚠️ Engine stopped: \(reason.rawValue)")
+                // Auto-restart if stopped by system
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    try? self?.engine?.start()
+                }
             }
             try engine?.start()
             print("[HapticsManager] ✅ Haptic engine started")
