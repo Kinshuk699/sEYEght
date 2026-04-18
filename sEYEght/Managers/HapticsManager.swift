@@ -7,12 +7,15 @@
 
 import CoreHaptics
 import AVFoundation
+import AudioToolbox
 #if canImport(UIKit)
 import UIKit
 #endif
 
 /// F-002: Dynamic Haptic & Audio Radar.
 /// Maps closest depth point to haptic intensity AND an audio proximity tone.
+/// Uses AudioServicesPlaySystemSound for haptics — this bypasses UIKit's haptic
+/// abstraction which gets suppressed when AVAudioEngine has an active mic input tap.
 @Observable
 final class HapticsManager {
     private var isSetup = false
@@ -32,13 +35,11 @@ final class HapticsManager {
     /// Maximum detection range in meters
     var maxRange: Double = 1.5
 
-    // MARK: - UIKit Haptic Generators (work alongside AVAudioEngine)
-
-    #if canImport(UIKit)
-    private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
-    private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
-    #endif
+    // MARK: - System Haptic Sound IDs (bypass UIKit, work with active AVAudioEngine)
+    // These go directly to the Taptic Engine via AudioToolbox
+    private let peekSoundID: SystemSoundID = 1519      // Light tap
+    private let popSoundID: SystemSoundID = 1520       // Medium tap
+    private let trySoundID: SystemSoundID = 1521       // Heavy tap (3 quick taps)
 
     // MARK: - Audio Tone Properties
 
@@ -57,20 +58,12 @@ final class HapticsManager {
     /// Stereo panning: -1.0 = full left, 0.0 = center, 1.0 = full right
     private var tonePan: Float = 0.0
 
-    init() {
-        // UIKit generators are ready immediately — no deferred setup needed
-    }
+    init() {}
 
     func ensureEngine() {
         guard !isSetup else { return }
         isSetup = true
-        print("[HapticsManager] \u{2705} Engine setup (UIKit generators), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
-        // Prepare haptic generators for lower latency
-        #if canImport(UIKit)
-        lightGenerator.prepare()
-        mediumGenerator.prepare()
-        heavyGenerator.prepare()
-        #endif
+        print("[HapticsManager] \u{2705} Engine setup (AudioToolbox haptics), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
         // Only start the beep audio engine if the user has enabled beeps
         if audioToneEnabled {
             setupAudioTone()
@@ -175,42 +168,28 @@ final class HapticsManager {
         }
 
         // Haptics — throttled to avoid rate-limit warnings and respects user preference
-        guard hapticsEnabled else {
-            print("[HapticsManager] ❌ BLOCKED: hapticsEnabled=false")
-            return
-        }
+        guard hapticsEnabled else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return } // throttle — silent
+        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
         lastHapticTime = now
-        guard withinRange else {
-            print("[HapticsManager] ❌ BLOCKED: out of range dist=\(distance) max=\(maxRange)")
-            return
-        }
+        guard withinRange else { return }
 
         let normalizedDistance = max(0, min(1, Double(distance) / maxRange))
         let intensity = (1.0 - normalizedDistance) * userIntensityLevel
 
-        guard intensity > 0.05 else {
-            print("[HapticsManager] ❌ BLOCKED: intensity too low=\(intensity) userLevel=\(userIntensityLevel)")
-            return
-        }
+        guard intensity > 0.05 else { return }
 
-        // UIKit haptic generators — MUST run on main thread
-        #if canImport(UIKit)
-        DispatchQueue.main.async { [self] in
-            if intensity > 0.6 {
-                heavyGenerator.prepare()
-                heavyGenerator.impactOccurred(intensity: CGFloat(min(1.0, intensity)))
-            } else if intensity > 0.3 {
-                mediumGenerator.prepare()
-                mediumGenerator.impactOccurred(intensity: CGFloat(intensity))
-            } else {
-                lightGenerator.prepare()
-                lightGenerator.impactOccurred(intensity: CGFloat(intensity))
-            }
-            print("[HapticsManager] ✅ Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity)) thread=\(Thread.isMainThread ? "main" : "bg")")
+        // AudioServicesPlaySystemSound — goes DIRECTLY to Taptic Engine hardware.
+        // Cannot be suppressed by AVAudioEngine, audio session, or UIKit state.
+        // 1519 = light peek, 1520 = medium pop, 1521 = heavy triple-tap
+        if intensity > 0.6 {
+            AudioServicesPlaySystemSound(trySoundID)
+        } else if intensity > 0.3 {
+            AudioServicesPlaySystemSound(popSoundID)
+        } else {
+            AudioServicesPlaySystemSound(peekSoundID)
         }
-        #endif
+        print("[HapticsManager] \u{2705} Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity))")
     }
 
     /// Stop audio tone (e.g., when leaving Dashboard)
