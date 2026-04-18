@@ -18,29 +18,14 @@ final class SpeechManager {
     var isListening = false
     var lastRecognizedText = ""
 
-    /// Fired when the wake phrase is detected
+    /// Fired when the wake phrase is detected (scene description)
     var onWakeWordDetected: (() -> Void)?
 
     /// Fired when "where am I" is detected (works standalone, no wake phrase needed)
     var onWhereAmIDetected: (() -> Void)?
 
-    /// Fired when "navigate to [destination]" is detected — passes extracted destination
-    var onNavigateDetected: ((String) -> Void)?
-
-    /// Fired when user picks a search result ("first", "second", "third")
-    var onSelectionDetected: ((Int) -> Void)?
-
-    /// Fired when "stop navigation" / "cancel" is detected during active nav
-    var onStopNavigationDetected: (() -> Void)?
-
     /// Fired when "help" is detected
     var onHelpDetected: (() -> Void)?
-
-    /// When true, listen for selection commands instead of normal commands
-    var isWaitingForSelection = false
-
-    /// When true, "stop" / "cancel" triggers stop navigation
-    var isNavigationActive = false
 
     private let speechRecognizer = SFSpeechRecognizer()  // Uses device locale for better accent support
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -53,26 +38,6 @@ final class SpeechManager {
         "hey seyeght", "hey say it", "hey side", "hey light",
         "hey cite", "hey fight", "hey slide", "heysite", "heysight",
         "hey psy", "hey sai", "hey sci"
-    ]
-
-    // Navigation trigger phrases — destination extracted from text after these
-    private let navigationTriggers = [
-        "navigate to", "take me to", "go to", "directions to",
-        "navigating to", "navigate two", "navigate too",
-        "take me two", "take me too", "go two", "go too"
-    ]
-
-    // Selection phrases — user picking from search results
-    private let selectionPhrases: [(phrases: [String], index: Int)] = [
-        (["first", "the first", "first one", "the first one", "number one", "one", "1"], 0),
-        (["second", "the second", "second one", "the second one", "number two", "two", "2"], 1),
-        (["third", "the third", "third one", "the third one", "number three", "three", "3"], 2)
-    ]
-
-    // Stop navigation phrases
-    private let stopPhrases = [
-        "stop navigation", "cancel navigation", "stop navigating",
-        "cancel route", "stop route", "stop directions", "cancel directions"
     ]
 
     // Help phrases
@@ -98,7 +63,10 @@ final class SpeechManager {
 
     func startListening() {
         // Guard: don't restart if already listening
-        guard !isListening else { return }
+        guard !isListening else {
+            print("[SpeechManager] Already listening, skipping startListening()")
+            return
+        }
 
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             print("[SpeechManager] ❌ Speech recognizer not available")
@@ -110,15 +78,6 @@ final class SpeechManager {
 
         // Only configure audio engine if it's not already running
         if !audioEngine.isRunning {
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-                try session.setActive(true)
-            } catch {
-                print("[SpeechManager] ❌ Failed to configure audio session: \(error)")
-                return
-            }
-
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
 
@@ -164,69 +123,17 @@ final class SpeechManager {
                 let text = result.bestTranscription.formattedString.lowercased()
                 self.lastRecognizedText = text
 
-                // --- Selection mode: user is picking from search results ---
-                if self.isWaitingForSelection {
-                    for entry in self.selectionPhrases {
-                        if entry.phrases.contains(where: { text.contains($0) }) {
-                            print("[SpeechManager] 🗺️ Selection detected: index \(entry.index) from '\(text)'")
-                            #if canImport(UIKit)
-                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                            generator.impactOccurred()
-                            #endif
-                            self.onSelectionDetected?(entry.index)
-                            self.restartRecognitionOnly()
-                            return
-                        }
-                    }
-                    // Don't process other commands while waiting for selection
-                    return
-                }
-
                 // --- Help command ---
                 if self.helpPhrases.contains(where: { text.contains($0) }) {
-                    print("[SpeechManager] ❓ Help command detected")
+                    print("[SpeechManager] Help command detected")
                     self.onHelpDetected?()
                     self.restartRecognitionOnly()
                     return
                 }
 
-                // --- Stop navigation ---
-                if self.isNavigationActive {
-                    let stopDetected = self.stopPhrases.contains { text.contains($0) }
-                    // Also allow just "stop" or "cancel" during active navigation
-                    let simpleStop = text.hasSuffix("stop") || text.hasSuffix("cancel")
-                    if stopDetected || simpleStop {
-                        print("[SpeechManager] 🛑 Stop navigation detected")
-                        #if canImport(UIKit)
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.warning)
-                        #endif
-                        self.onStopNavigationDetected?()
-                        self.restartRecognitionOnly()
-                        return
-                    }
-                }
-
-                // --- Navigation command: "navigate to [destination]" ---
-                for trigger in self.navigationTriggers {
-                    if let range = text.range(of: trigger) {
-                        let destination = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-                        if destination.count >= 2 {
-                            print("[SpeechManager] 🗺️ Navigate command: '\(destination)'")
-                            #if canImport(UIKit)
-                            let generator = UINotificationFeedbackGenerator()
-                            generator.notificationOccurred(.success)
-                            #endif
-                            self.onNavigateDetected?(destination)
-                            self.restartRecognitionOnly()
-                            return
-                        }
-                    }
-                }
-
                 // "Where am I" works standalone — no wake phrase needed
                 if text.contains("where am i") {
-                    print("[SpeechManager] 📍 'Where am I' command detected")
+                    print("[SpeechManager] 'Where am I' command detected")
                     self.onWhereAmIDetected?()
                     self.restartRecognitionOnly()
                     return
@@ -239,7 +146,7 @@ final class SpeechManager {
                     text.contains("see right now") || text.contains("seeing right now") ||
                     text.contains("looking at") || text.contains("in front of")
                 if wakeDetected || describeDetected || partialDescribe {
-                    print("[SpeechManager] 🎤 Command detected! Text: '\(text)' (wake=\(wakeDetected), describe=\(describeDetected))")
+                    print("[SpeechManager] Command detected! Text: '\(text)' (wake=\(wakeDetected), describe=\(describeDetected))")
 
                     #if canImport(UIKit)
                     let generator = UINotificationFeedbackGenerator()

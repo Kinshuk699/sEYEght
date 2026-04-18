@@ -415,7 +415,7 @@ struct ConversationalSetupView: View {
         guard !Task.isCancelled else { return }
 
         try? await Task.sleep(for: .seconds(0.5))
-        await Narrator.shared.speakAndWait("Say navigate to, followed by a place name, for walking directions.")
+        await Narrator.shared.speakAndWait("Tap the bottom right button to search for a destination and get walking directions.")
         guard !Task.isCancelled else { return }
 
         try? await Task.sleep(for: .seconds(0.5))
@@ -700,7 +700,7 @@ struct ConversationalSetupView: View {
 
         // 4d — Explain interaction model
         await Narrator.shared.speakWithOpenAIAndWait(
-            "To use the app, tap the screen four times quickly and I'll describe what's in front of you. Or shake your phone. Triple-tap to hear your current location. You can also say navigate to, followed by a place name, and I'll give you walking directions."
+            "To use the app, tap the screen four times quickly and I'll describe what's in front of you. Or shake your phone. Triple-tap to hear your current location. Tap the bottom right button to search for a destination and get walking directions."
         )
     }
 

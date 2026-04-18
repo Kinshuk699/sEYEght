@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import Combine
 import UIKit
+import AVFoundation
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
@@ -24,6 +25,7 @@ struct DashboardView: View {
 
     @State private var navigateToSettings = false
     @State private var navigateToSubscription = false
+    @State private var navigateToNavSearch = false
     @State private var isAnalyzingScene = false
 
     /// Tracks the last spoken distance threshold to avoid repeating
@@ -161,7 +163,7 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Bottom: settings gear
+                // Bottom bar: settings (left) + navigation (right)
                 HStack {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 24))
@@ -172,7 +174,41 @@ struct DashboardView: View {
                         .navigable("Settings button") {
                             navigateToSettings = true
                         }
+
                     Spacer()
+
+                    // Stop navigation button (only visible during active nav)
+                    if navigationManager.isNavigating {
+                        Button {
+                            navigationManager.stopNavigation()
+                            speak("Navigation stopped.", priority: true)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Stop")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.red.opacity(0.8))
+                            .clipShape(Capsule())
+                        }
+                        .accessibilityLabel("Stop navigation")
+                        .accessibilityHint("Double tap to cancel the current route")
+                    }
+
+                    // Navigation mode button
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(SeyeghtTheme.accent)
+                        .padding(10)
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Circle())
+                        .navigable("Navigate button. Find a destination.") {
+                            navigateToNavSearch = true
+                        }
                 }
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
                 .padding(.bottom, 24)
@@ -190,9 +226,27 @@ struct DashboardView: View {
         .onAppear {
             // Guard: only do full init ONCE per app session — not on every return from background
             guard !appState.hasAnnouncedWelcomeThisSession else {
-                // Just restart hardware silently when returning from background/settings
+                // Returning from background/settings — restart hardware + re-sync settings
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                    try session.setActive(true)
+                } catch {
+                    print("[DashboardView] Audio session re-config failed: \(error)")
+                }
+
+                // Re-sync settings (user may have changed toggles in SettingsView)
+                if let settings = settingsArray.first {
+                    hapticsManager.userIntensityLevel = settings.hapticIntensityLevel
+                    hapticsManager.maxRange = settings.radarRangeMeters
+                    hapticsManager.audioToneVolume = Float(settings.beepVolume)
+                    hapticsManager.audioToneEnabled = settings.beepsEnabled
+                    hapticsManager.hapticsEnabled = settings.hapticsEnabled
+                }
+
                 lidarManager.start()
                 hapticsManager.ensureEngine()
+                speechManager.startListening()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
                 return
@@ -221,6 +275,17 @@ struct DashboardView: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
+
+                // Configure audio session ONCE before any engine starts
+                // Must be .playAndRecord so SpeechManager mic + HapticsManager tones coexist
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                    try session.setActive(true)
+                } catch {
+                    print("[DashboardView] ❌ Audio session config failed: \(error)")
+                }
+
                 hapticsManager.ensureEngine()
                 lidarManager.start()
 
@@ -230,28 +295,9 @@ struct DashboardView: View {
                 navigationManager.onPrioritySpeechRequest = { text in speak(text, priority: true) }
 
                 // Wire voice commands from SpeechManager
-                speechManager.onNavigateDetected = { destination in
-                    speechManager.isNavigationActive = true
-                    Task { await navigationManager.searchDestination(destination) }
-                }
-                speechManager.onSelectionDetected = { index in
-                    speechManager.isWaitingForSelection = false
-                    Task { await navigationManager.selectSearchResult(at: index) }
-                }
-                speechManager.onStopNavigationDetected = {
-                    navigationManager.stopNavigation()
-                    speechManager.isNavigationActive = false
-                    speechManager.isWaitingForSelection = false
-                    speak("Navigation stopped.", priority: true)
-                }
                 speechManager.onHelpDetected = { speakHelp() }
                 speechManager.onWakeWordDetected = { handleSceneTap() }
                 speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
-
-                // Sync selection state from NavigationManager to SpeechManager
-                navigationManager.onSelectionStateChanged = { waiting in
-                    speechManager.isWaitingForSelection = waiting
-                }
 
                 // Start voice recognition
                 speechManager.startListening()
@@ -262,7 +308,7 @@ struct DashboardView: View {
                 // Spoken welcome ONLY on first launch this session
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Sight ready. Say navigate to a place for walking directions.")
+                speak("Sight ready. Tap the bottom right to navigate somewhere.")
             }
         }
         .onDisappear {
@@ -288,6 +334,9 @@ struct DashboardView: View {
         }
         .navigationDestination(isPresented: $navigateToSubscription) {
             SubscriptionView()
+        }
+        .navigationDestination(isPresented: $navigateToNavSearch) {
+            NavigationSearchView()
         }
     }
 
@@ -539,10 +588,10 @@ struct DashboardView: View {
     private func speakHelp() {
         let helpText = """
         Here are your commands. \
-        Say navigate to, followed by a place name, for walking directions. \
-        Say stop navigation to cancel. \
+        Tap the bottom right button to navigate somewhere. \
         Tap four times or shake to describe what's ahead. \
         Triple-tap to hear your current location. \
+        Say where am I for your address. \
         Double-tap the bottom left corner for settings.
         """
         speak(helpText, priority: true)

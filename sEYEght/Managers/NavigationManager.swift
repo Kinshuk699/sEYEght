@@ -27,6 +27,8 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
     var isWaitingForSelection = false
 
     private let locationManager = CLLocationManager()
+    /// Current user location (exposed for search views)
+    var userLocation: CLLocation? { locationManager.location }
     /// Callback so Dashboard can speak through its single synthesizer
     var onSpeechRequest: ((String) -> Void)?
     /// Callback for priority speech (interrupts current)
@@ -118,6 +120,13 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
         onSelectionStateChanged?(false)
         pendingSearchResults = []
 
+        speakInstruction("Navigating to \(name). Calculating route.")
+        await startRouteToItem(item)
+    }
+
+    /// Start navigation directly to a map item (from NavigationSearchView)
+    func selectSearchResultDirect(_ item: MKMapItem) async {
+        let name = item.name ?? "destination"
         speakInstruction("Navigating to \(name). Calculating route.")
         await startRouteToItem(item)
     }

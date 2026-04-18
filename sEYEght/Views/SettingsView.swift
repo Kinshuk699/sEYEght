@@ -46,6 +46,7 @@ struct SettingsView: View {
                             }
                             settings.voiceEnabled = newValue
                             speakSettingChange(newValue ? "Voice on" : "Voice off")
+                            try? modelContext.save()
                         }
                     )
                 )
@@ -63,6 +64,7 @@ struct SettingsView: View {
                             settings.beepsEnabled = newValue
                             hapticsManager.audioToneEnabled = newValue
                             speakSettingChange(newValue ? "Beeps on" : "Beeps off")
+                            try? modelContext.save()
                         }
                     )
                 )
@@ -80,6 +82,7 @@ struct SettingsView: View {
                             settings.hapticsEnabled = newValue
                             hapticsManager.hapticsEnabled = newValue
                             speakSettingChange(newValue ? "Haptics on" : "Haptics off")
+                            try? modelContext.save()
                         }
                     )
                 )
@@ -225,17 +228,21 @@ struct SettingsView: View {
         .onChange(of: settings.hapticIntensityLevel) { _, newVal in
             hapticsManager.userIntensityLevel = newVal
             speakSettingChange("Haptic intensity \(Int(newVal * 100)) percent")
+            try? modelContext.save()
         }
         .onChange(of: settings.radarRangeMeters) { _, newVal in
             hapticsManager.maxRange = newVal
             speakSettingChange(String(format: "Radar range %.1f meters", newVal))
+            try? modelContext.save()
         }
         .onChange(of: settings.speechRate) { _, newVal in
             speakSettingChange(String(format: "Speech speed %.1f x", newVal * 2))
+            try? modelContext.save()
         }
         .onChange(of: settings.beepVolume) { _, newVal in
             hapticsManager.audioToneVolume = Float(newVal)
             speakSettingChange("Beep volume \(Int(newVal * 200)) percent")
+            try? modelContext.save()
         }
         .onAppear {
             // Sync stored settings to live manager values
