@@ -18,6 +18,7 @@ struct DashboardView: View {
     @Environment(VisionManager.self) private var visionManager
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(SubscriptionManager.self) private var subscriptionManager
+    @Environment(SpeechManager.self) private var speechManager
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsArray: [UserSettings]
 
@@ -226,6 +227,34 @@ struct DashboardView: View {
                 // Wire all managers' speech through Dashboard's single synthesizer
                 visionManager.onSpeechRequest = { text in speakNatural(text) }
                 navigationManager.onSpeechRequest = { text in speak(text) }
+                navigationManager.onPrioritySpeechRequest = { text in speak(text, priority: true) }
+
+                // Wire voice commands from SpeechManager
+                speechManager.onNavigateDetected = { destination in
+                    speechManager.isNavigationActive = true
+                    Task { await navigationManager.searchDestination(destination) }
+                }
+                speechManager.onSelectionDetected = { index in
+                    speechManager.isWaitingForSelection = false
+                    Task { await navigationManager.selectSearchResult(at: index) }
+                }
+                speechManager.onStopNavigationDetected = {
+                    navigationManager.stopNavigation()
+                    speechManager.isNavigationActive = false
+                    speechManager.isWaitingForSelection = false
+                    speak("Navigation stopped.", priority: true)
+                }
+                speechManager.onHelpDetected = { speakHelp() }
+                speechManager.onWakeWordDetected = { handleSceneTap() }
+                speechManager.onWhereAmIDetected = { navigationManager.speakCurrentLocation() }
+
+                // Sync selection state from NavigationManager to SpeechManager
+                navigationManager.onSelectionStateChanged = { waiting in
+                    speechManager.isWaitingForSelection = waiting
+                }
+
+                // Start voice recognition
+                speechManager.startListening()
 
                 // Start shake detection
                 ShakeDetector.shared.start()
@@ -233,7 +262,7 @@ struct DashboardView: View {
                 // Spoken welcome ONLY on first launch this session
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
-                speak("Sight ready.")
+                speak("Sight ready. Say navigate to a place for walking directions.")
             }
         }
         .onDisappear {
@@ -510,6 +539,8 @@ struct DashboardView: View {
     private func speakHelp() {
         let helpText = """
         Here are your commands. \
+        Say navigate to, followed by a place name, for walking directions. \
+        Say stop navigation to cancel. \
         Tap four times or shake to describe what's ahead. \
         Triple-tap to hear your current location. \
         Double-tap the bottom left corner for settings.

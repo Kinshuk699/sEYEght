@@ -17,6 +17,7 @@ struct sEYEghtApp: App {
     @State private var hapticsManager = HapticsManager()
     @State private var visionManager = VisionManager()
     @State private var navigationManager = NavigationManager()
+    @State private var speechManager = SpeechManager()
     @State private var subscriptionManager = SubscriptionManager()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -34,6 +35,7 @@ struct sEYEghtApp: App {
             .environment(hapticsManager)
             .environment(visionManager)
             .environment(navigationManager)
+            .environment(speechManager)
             .environment(subscriptionManager)
             .preferredColorScheme(.dark)
             .onAppear {
