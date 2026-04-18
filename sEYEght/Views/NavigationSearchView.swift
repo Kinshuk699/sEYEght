@@ -187,6 +187,9 @@ struct NavigationSearchView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
+        // Stop any ongoing narration (e.g. the intro instructions)
+        Narrator.shared.stop()
+
         isSearching = true
         isTextFieldFocused = false
         searchResults = []
@@ -249,6 +252,9 @@ struct NavigationSearchView: View {
     private func confirmSelection(at index: Int) {
         guard index < searchResults.count else { return }
         hasStartedRoute = true
+
+        // Stop any ongoing narration ("double tap to start navigation" etc.)
+        Narrator.shared.stop()
 
         // Strong haptic confirms
         let generator = UINotificationFeedbackGenerator()

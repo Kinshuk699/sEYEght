@@ -14,7 +14,6 @@ import UIKit
 @Observable
 final class PermissionsManager: NSObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
-    private var foregroundObserver: NSObjectProtocol?
 
     var cameraStatus: Bool = false
     var locationStatus: Bool = false
@@ -31,24 +30,11 @@ final class PermissionsManager: NSObject, CLLocationManagerDelegate {
         super.init()
         locationManager.delegate = self
         checkCurrentStatuses()
-
-        // Force re-check when returning from iOS Settings
-        foregroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.checkCurrentStatuses()
-        }
-
-        print("[PermissionsManager] Initialized, checking current statuses")
+        print("[PermissionsManager] Initialized")
     }
 
     deinit {
         locationManager.delegate = nil
-        if let observer = foregroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
     }
 
     func checkCurrentStatuses() {

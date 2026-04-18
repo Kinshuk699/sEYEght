@@ -7,12 +7,14 @@
 
 import CoreHaptics
 import AVFoundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// F-002: Dynamic Haptic & Audio Radar.
 /// Maps closest depth point to haptic intensity AND an audio proximity tone.
 @Observable
 final class HapticsManager {
-    private var engine: CHHapticEngine?
     private var isSetup = false
 
     /// User-configurable intensity multiplier (0.0 to 1.0)
@@ -29,6 +31,14 @@ final class HapticsManager {
 
     /// Maximum detection range in meters
     var maxRange: Double = 1.5
+
+    // MARK: - UIKit Haptic Generators (work alongside AVAudioEngine)
+
+    #if canImport(UIKit)
+    private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    #endif
 
     // MARK: - Audio Tone Properties
 
@@ -48,13 +58,19 @@ final class HapticsManager {
     private var tonePan: Float = 0.0
 
     init() {
-        // Defer engine setup — CoreHaptics needs the app to be fully active
+        // UIKit generators are ready immediately — no deferred setup needed
     }
 
     func ensureEngine() {
         guard !isSetup else { return }
         isSetup = true
-        setupEngine()
+        print("[HapticsManager] \u{2705} Engine setup (UIKit generators), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
+        // Prepare haptic generators for lower latency
+        #if canImport(UIKit)
+        lightGenerator.prepare()
+        mediumGenerator.prepare()
+        heavyGenerator.prepare()
+        #endif
         // Only start the beep audio engine if the user has enabled beeps
         if audioToneEnabled {
             setupAudioTone()
@@ -76,45 +92,6 @@ final class HapticsManager {
         audioEngine = nil
         toneSourceNode = nil
         toneFrequency = 0
-    }
-
-    /// Force-restart the haptic engine (call on return from background/settings)
-    func restartHapticEngine() {
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-        do {
-            try engine?.start()
-            print("[HapticsManager] ✅ Haptic engine restarted")
-        } catch {
-            print("[HapticsManager] Engine restart failed, recreating: \(error)")
-            engine = nil
-            setupEngine()
-        }
-    }
-
-    private func setupEngine() {
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
-            print("[HapticsManager] ❌ Device does not support haptics")
-            return
-        }
-
-        do {
-            engine = try CHHapticEngine()
-            engine?.resetHandler = { [weak self] in
-                print("[HapticsManager] Engine reset, restarting")
-                try? self?.engine?.start()
-            }
-            engine?.stoppedHandler = { [weak self] reason in
-                print("[HapticsManager] ⚠️ Engine stopped: \(reason.rawValue)")
-                // Auto-restart if stopped by system
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    try? self?.engine?.start()
-                }
-            }
-            try engine?.start()
-            print("[HapticsManager] ✅ Haptic engine started")
-        } catch {
-            print("[HapticsManager] ❌ Failed to start engine: \(error)")
-        }
     }
 
     // MARK: - Audio Proximity Tone
@@ -198,33 +175,42 @@ final class HapticsManager {
         }
 
         // Haptics — throttled to avoid rate-limit warnings and respects user preference
-        guard hapticsEnabled else { return }
+        guard hapticsEnabled else {
+            print("[HapticsManager] ❌ BLOCKED: hapticsEnabled=false")
+            return
+        }
         let now = Date()
-        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
+        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return } // throttle — silent
         lastHapticTime = now
-        guard let engine = engine, withinRange else { return }
+        guard withinRange else {
+            print("[HapticsManager] ❌ BLOCKED: out of range dist=\(distance) max=\(maxRange)")
+            return
+        }
 
         let normalizedDistance = max(0, min(1, Double(distance) / maxRange))
         let intensity = (1.0 - normalizedDistance) * userIntensityLevel
-        let sharpness = normalizedDistance < 0.2 ? 1.0 : 0.5
 
-        do {
-            let intensityParam = CHHapticEventParameter(parameterID: .hapticIntensity, value: Float(intensity))
-            let sharpnessParam = CHHapticEventParameter(parameterID: .hapticSharpness, value: Float(sharpness))
-
-            let event = CHHapticEvent(
-                eventType: .hapticContinuous,
-                parameters: [intensityParam, sharpnessParam],
-                relativeTime: 0,
-                duration: 0.2
-            )
-
-            let pattern = try CHHapticPattern(events: [event], parameters: [])
-            let player = try engine.makePlayer(with: pattern)
-            try player.start(atTime: CHHapticTimeImmediate)
-        } catch {
-            print("[HapticsManager] ❌ Haptic playback error: \(error)")
+        guard intensity > 0.05 else {
+            print("[HapticsManager] ❌ BLOCKED: intensity too low=\(intensity) userLevel=\(userIntensityLevel)")
+            return
         }
+
+        // UIKit haptic generators — MUST run on main thread
+        #if canImport(UIKit)
+        DispatchQueue.main.async { [self] in
+            if intensity > 0.6 {
+                heavyGenerator.prepare()
+                heavyGenerator.impactOccurred(intensity: CGFloat(min(1.0, intensity)))
+            } else if intensity > 0.3 {
+                mediumGenerator.prepare()
+                mediumGenerator.impactOccurred(intensity: CGFloat(intensity))
+            } else {
+                lightGenerator.prepare()
+                lightGenerator.impactOccurred(intensity: CGFloat(intensity))
+            }
+            print("[HapticsManager] ✅ Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity)) thread=\(Thread.isMainThread ? "main" : "bg")")
+        }
+        #endif
     }
 
     /// Stop audio tone (e.g., when leaving Dashboard)

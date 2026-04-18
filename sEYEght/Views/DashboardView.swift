@@ -247,8 +247,6 @@ struct DashboardView: View {
                 lidarManager.start()
                 hapticsManager.ensureEngine()
                 speechManager.startListening()
-                // Force-restart haptic engine AFTER speech engine starts
-                hapticsManager.restartHapticEngine()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
                 return
@@ -304,10 +302,6 @@ struct DashboardView: View {
                 // Start voice recognition
                 speechManager.startListening()
 
-                // Force-restart haptic engine AFTER speech engine starts
-                // (AVAudioEngine for mic can kill CHHapticEngine)
-                hapticsManager.restartHapticEngine()
-
                 // Start shake detection
                 ShakeDetector.shared.start()
 
@@ -331,6 +325,11 @@ struct DashboardView: View {
             handleSceneTap()
         }
         .onChange(of: lidarManager.closestDistance) { _, distance in
+            // Only fire haptics/speech when Dashboard is the active screen
+            if navigateToNavSearch || navigateToSettings || navigateToSubscription {
+                print("[DashboardView] ❌ Haptics blocked: child screen open (nav=\(navigateToNavSearch) set=\(navigateToSettings) sub=\(navigateToSubscription))")
+                return
+            }
             hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
             speakDistanceIfNeeded(distance)
         }
@@ -415,6 +414,9 @@ struct DashboardView: View {
         guard !isAnalyzingScene && Date() > sceneSpeechUntil else { return }
         // Don't interrupt an in-progress distance announcement — let it finish
         guard Date() > distanceSpeechUntil else { return }
+        // During active navigation, only warn for very close obstacles (< 0.5m)
+        // to avoid talking over turn-by-turn directions
+        if navigationManager.isNavigating && distance >= 0.5 { return }
         
         guard distance < 1.2 else {
             // Cleared — reset so we can announce again when approaching
