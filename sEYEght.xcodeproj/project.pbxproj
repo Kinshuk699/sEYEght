@@ -409,6 +409,8 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght uses the microphone so you can give voice commands like navigate to or describe.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to understand your voice commands.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -467,6 +469,8 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Seyeght uses the camera and LiDAR sensor to detect obstacles and keep you safe.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Seyeght uses your location in the background so navigation continues when your screen is off.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Seyeght uses your location to provide turn-by-turn navigation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Seyeght uses the microphone so you can give voice commands like navigate to or describe.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Seyeght uses speech recognition to understand your voice commands.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
