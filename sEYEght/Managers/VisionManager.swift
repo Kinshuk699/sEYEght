@@ -86,16 +86,13 @@ final class VisionManager {
             // Build description from results
             var parts: [String] = []
 
-            // Scene classifications (top results above 20% confidence)
-            if let classifications = classifyRequest.results {
-                let top = classifications
-                    .filter { $0.confidence > 0.2 }
-                    .prefix(4)
-                    .map { self.humanReadableLabel($0.identifier) }
-
-                if !top.isEmpty {
-                    parts.append(top.joined(separator: ", "))
-                }
+            // Scene classification — take only the single best label.
+            // VNClassifyImageRequest returns a taxonomy hierarchy (e.g. "structure",
+            // "conveyance", "door", "portal" for the same object). The highest-confidence
+            // result is the most specific child label, which is what we want.
+            if let classifications = classifyRequest.results,
+               let best = classifications.first, best.confidence > 0.15 {
+                parts.append(self.humanReadableLabel(best.identifier))
             }
 
             // People count
