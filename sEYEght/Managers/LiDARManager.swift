@@ -16,6 +16,8 @@ final class LiDARManager: NSObject, ARSessionDelegate {
     var closestDistance: Float = Float.greatestFiniteMagnitude
     var closestNormalizedX: Float = 0.5 // 0=left, 1=right
     var isRunning = false
+    /// Current camera transform — used by ARNavigationOverlay for coordinate mapping
+    var cameraTransform: simd_float4x4 = matrix_identity_float4x4
 
     private var arSession: ARSession?
     private var lastProcessTime: TimeInterval = 0
@@ -34,6 +36,7 @@ final class LiDARManager: NSObject, ARSessionDelegate {
 
         let config = ARWorldTrackingConfiguration()
         config.frameSemantics = .sceneDepth
+        config.worldAlignment = .gravityAndHeading  // X=east, Z=south for GPS mapping
 
         // Pause any existing session before creating a new one
         arSession?.pause()
@@ -60,6 +63,11 @@ final class LiDARManager: NSObject, ARSessionDelegate {
     // MARK: - ARSessionDelegate
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        // Always update camera transform (cheap, no throttle needed)
+        DispatchQueue.main.async { [weak self] in
+            self?.cameraTransform = frame.camera.transform
+        }
+
         let now = frame.timestamp
         guard now - lastProcessTime >= minProcessInterval else { return }
         guard !isProcessing else { return }

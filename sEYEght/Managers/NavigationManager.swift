@@ -36,8 +36,14 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
     /// Callback to sync selection state
     var onSelectionStateChanged: ((Bool) -> Void)?
     private var currentStepIndex = 0
+    /// Current step index — exposed for AR overlay
+    var activeStepIndex: Int { currentStepIndex }
     /// Track if user has been warned about being off-course recently
     private var lastOffCourseWarning: Date = .distantPast
+    /// Heading confirmation: bearing to next step
+    private var targetBearing: Double = 0
+    /// Timer for periodic heading checks between turns
+    private var headingCheckTimer: Timer?
 
     override init() {
         super.init()
@@ -165,6 +171,9 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
                 locationManager.pausesLocationUpdatesAutomatically = false
             }
             locationManager.startUpdatingLocation()
+            locationManager.startUpdatingHeading()
+            updateTargetBearing()
+            startHeadingConfirmation()
 
             // Success haptic
             #if canImport(UIKit)
@@ -207,6 +216,8 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
         nextInstruction = nil
         currentStepIndex = 0
         locationManager.stopUpdatingLocation()
+        locationManager.stopUpdatingHeading()
+        stopHeadingConfirmation()
 
         if wasNavigating {
             #if canImport(UIKit)
@@ -274,6 +285,7 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
 
                 // Directional haptic
                 playTurnHaptic(for: nextStep.instructions)
+                updateTargetBearing()
 
                 speakInstruction(nextStep.instructions)
                 print("[NavigationManager] Step \(currentStepIndex): \(nextStep.instructions)")
@@ -291,27 +303,102 @@ final class NavigationManager: NSObject, CLLocationManagerDelegate {
 
     // MARK: - Turn Haptics
 
-    /// Play a directional haptic pattern for turn instructions
+    /// Play a directional haptic pattern for turn instructions.
+    /// Left = 2 heavy pulses, Right = 3 heavy pulses, Straight = 1 medium pulse.
     private func playTurnHaptic(for instruction: String) {
         #if canImport(UIKit)
         let lower = instruction.lowercased()
-        let generator = UIImpactFeedbackGenerator(style: .medium)
 
         if lower.contains("left") {
-            // 2 quick pulses for left
-            generator.impactOccurred()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                generator.impactOccurred()
+            // Left turn: 2 quick heavy pulses
+            let gen = UIImpactFeedbackGenerator(style: .heavy)
+            gen.impactOccurred(intensity: 1.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                gen.impactOccurred(intensity: 1.0)
             }
         } else if lower.contains("right") {
-            // 2 quick pulses for right
-            generator.impactOccurred()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                generator.impactOccurred()
+            // Right turn: 3 quick heavy pulses (distinct from left)
+            let gen = UIImpactFeedbackGenerator(style: .heavy)
+            gen.impactOccurred(intensity: 1.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                gen.impactOccurred(intensity: 1.0)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    gen.impactOccurred(intensity: 1.0)
+                }
             }
+        } else {
+            // Straight / continue: single firm pulse
+            let gen = UIImpactFeedbackGenerator(style: .medium)
+            gen.impactOccurred(intensity: 0.8)
         }
-        // Straight = no haptic
         #endif
+    }
+
+    // MARK: - Heading Confirmation
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        // Heading data available — used by the periodic check timer
+    }
+
+    private func startHeadingConfirmation() {
+        headingCheckTimer?.invalidate()
+        headingCheckTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            self?.checkHeading()
+        }
+    }
+
+    private func stopHeadingConfirmation() {
+        headingCheckTimer?.invalidate()
+        headingCheckTimer = nil
+    }
+
+    private func updateTargetBearing() {
+        guard let route = currentRoute, let userLoc = locationManager.location else { return }
+        let steps = route.steps.filter { !$0.instructions.isEmpty }
+        guard currentStepIndex < steps.count else { return }
+
+        let step = steps[currentStepIndex]
+        let stepCoord = step.polyline.coordinate
+        targetBearing = bearing(from: userLoc.coordinate, to: stepCoord)
+    }
+
+    private func checkHeading() {
+        guard isNavigating else { return }
+        guard let heading = locationManager.heading, heading.headingAccuracy >= 0 else { return }
+
+        let userHeading = heading.trueHeading
+        var diff = targetBearing - userHeading
+        // Normalize to -180...180
+        while diff > 180 { diff -= 360 }
+        while diff < -180 { diff += 360 }
+
+        if abs(diff) < 30 {
+            // On track — gentle haptic confirmation
+            #if canImport(UIKit)
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred(intensity: 0.5)
+            #endif
+        } else if diff > 30 {
+            // Drifting right of target, need to bear left
+            speakInstruction("Bear left.")
+        } else {
+            // Drifting left of target, need to bear right
+            speakInstruction("Bear right.")
+        }
+    }
+
+    /// Calculate bearing in degrees from one coordinate to another
+    private func bearing(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D) -> Double {
+        let lat1 = start.latitude * .pi / 180
+        let lat2 = end.latitude * .pi / 180
+        let dLon = (end.longitude - start.longitude) * .pi / 180
+
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+
+        var b = atan2(y, x) * 180 / .pi
+        if b < 0 { b += 360 }
+        return b
     }
 
     // MARK: - Speech

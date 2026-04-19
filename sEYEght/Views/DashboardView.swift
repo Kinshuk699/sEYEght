@@ -10,6 +10,8 @@ import SwiftData
 import Combine
 import UIKit
 import AVFoundation
+import CoreLocation
+import MapKit
 
 /// S-003: Main active dashboard. The user spends 99% of their time here.
 struct DashboardView: View {
@@ -45,12 +47,26 @@ struct DashboardView: View {
     @State private var lastBatteryWarningLevel: Int = 100
     /// Timer for periodic battery checks
     @State private var batteryCheckTimer: Timer?
+    /// AR navigation overlay manager
+    @State private var arOverlay = ARNavigationOverlay()
+    /// Compass bearing to next waypoint (degrees, 0=north)
+    @State private var compassBearing: Double = 0
+    /// User's current heading (degrees)
+    @State private var userHeading: Double = 0
+    /// Distance to next turn in meters
+    @State private var distanceToNextTurn: Double = 0
+    /// Next turn instruction text for compass overlay
+    @State private var nextTurnText: String = ""
+    /// Timer for updating AR overlay
+    @State private var arUpdateTimer: Timer?
 
     var body: some View {
         ZStack {
             // Layer 1: Live camera feed from ARKit
             if lidarManager.isRunning {
-                ARCameraView(session: lidarManager.session)
+                ARCameraView(session: lidarManager.session, onSceneReady: { scene in
+                    arOverlay.attach(to: scene)
+                })
                     .ignoresSafeArea()
 
                 // Semi-transparent overlay so UI elements are readable
@@ -212,6 +228,43 @@ struct DashboardView: View {
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
                 .padding(.bottom, 24)
             }
+
+            // Compass arrow overlay (only during navigation)
+            if navigationManager.isNavigating {
+                VStack {
+                    Spacer()
+
+                    HStack(spacing: 12) {
+                        // Rotating arrow pointing toward next waypoint
+                        Image(systemName: "location.north.fill")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(Color(red: 0.2, green: 1.0, blue: 0.2))
+                            .rotationEffect(.degrees(compassBearing - userHeading))
+                            .shadow(color: Color(red: 0.2, green: 1.0, blue: 0.2).opacity(0.8), radius: 10)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !nextTurnText.isEmpty {
+                                Text(nextTurnText)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                            }
+                            if distanceToNextTurn > 0 {
+                                Text(formatCompassDistance(distanceToNextTurn))
+                                    .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                    .foregroundColor(Color(red: 0.2, green: 1.0, blue: 0.2))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(16)
+                    .padding(.bottom, 80)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(nextTurnText.isEmpty ? "Navigating" : "\(nextTurnText), \(formatCompassDistance(distanceToNextTurn))")
+                }
+            }
         }
         .contentShape(Rectangle())
         // 4-tap has priority — SwiftUI waits to see if 4th tap comes before firing 3-tap
@@ -247,6 +300,7 @@ struct DashboardView: View {
                 hapticsManager.ensureEngine()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
+                startAROverlayUpdates()
                 return
             }
             appState.hasAnnouncedWelcomeThisSession = true
@@ -294,6 +348,9 @@ struct DashboardView: View {
                 // Start shake detection
                 ShakeDetector.shared.start()
 
+                // Start AR overlay update timer (updates at 2 Hz during navigation)
+                startAROverlayUpdates()
+
                 // Spoken welcome ONLY on first launch this session
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
@@ -308,6 +365,9 @@ struct DashboardView: View {
             proximityRepeatTimer = nil
             batteryCheckTimer?.invalidate()
             batteryCheckTimer = nil
+            arUpdateTimer?.invalidate()
+            arUpdateTimer = nil
+            arOverlay.detach()
             ShakeDetector.shared.stop()
         }
         .onReceive(ShakeDetector.shared.shakeDetected) { _ in
@@ -567,5 +627,81 @@ struct DashboardView: View {
         Double-tap the bottom left corner for settings.
         """
         speak(helpText, priority: true)
+    }
+
+    // MARK: - AR Navigation Overlay
+
+    private func startAROverlayUpdates() {
+        arUpdateTimer?.invalidate()
+        arUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            updateAROverlay()
+            updateCompassArrow()
+        }
+    }
+
+    private func updateAROverlay() {
+        guard navigationManager.isNavigating,
+              let route = navigationManager.currentRoute,
+              let userLoc = navigationManager.userLocation else {
+            return
+        }
+        arOverlay.update(
+            route: route,
+            userLocation: userLoc,
+            currentStepIndex: navigationManager.activeStepIndex
+        )
+    }
+
+    private func updateCompassArrow() {
+        guard navigationManager.isNavigating,
+              let route = navigationManager.currentRoute,
+              let userLoc = navigationManager.userLocation else {
+            compassBearing = 0
+            distanceToNextTurn = 0
+            nextTurnText = ""
+            return
+        }
+
+        let steps = route.steps.filter { !$0.instructions.isEmpty }
+        let stepIdx = navigationManager.activeStepIndex
+        guard stepIdx < steps.count else { return }
+
+        let step = steps[stepIdx]
+        let stepCoord = step.polyline.coordinate
+        let stepLoc = CLLocation(latitude: stepCoord.latitude, longitude: stepCoord.longitude)
+
+        distanceToNextTurn = userLoc.distance(from: stepLoc)
+        nextTurnText = step.instructions
+        compassBearing = bearingBetween(userLoc.coordinate, stepCoord)
+
+        // Get device heading from ARKit camera transform
+        if lidarManager.isRunning {
+            let transform = lidarManager.cameraTransform
+            // Extract forward direction from camera transform
+            let forward = simd_float3(-transform.columns.2.x, 0, -transform.columns.2.z)
+            let heading = atan2(forward.x, -forward.z) * 180 / .pi
+            userHeading = Double(heading < 0 ? heading + 360 : heading)
+        }
+    }
+
+    private func bearingBetween(_ from: CLLocationCoordinate2D, _ to: CLLocationCoordinate2D) -> Double {
+        let lat1 = from.latitude * .pi / 180
+        let lat2 = to.latitude * .pi / 180
+        let dLon = (to.longitude - from.longitude) * .pi / 180
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        var b = atan2(y, x) * 180 / .pi
+        if b < 0 { b += 360 }
+        return b
+    }
+
+    private func formatCompassDistance(_ meters: Double) -> String {
+        if meters < 100 {
+            return "\(Int(meters))m"
+        } else if meters < 1000 {
+            return "\(Int(meters / 10) * 10)m"
+        } else {
+            return String(format: "%.1f km", meters / 1000)
+        }
     }
 }
