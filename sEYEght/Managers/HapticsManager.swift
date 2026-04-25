@@ -9,13 +9,35 @@ import CoreHaptics
 import AVFoundation
 import UIKit
 
-/// F-002: Dynamic Haptic & Audio Radar.
-/// Maps closest depth point to haptic intensity AND an audio proximity tone.
-/// With no AVAudioEngine mic input tap in the app, UIImpactFeedbackGenerator
-/// works reliably without suppression.
+/// F-002: Discrete-zone Haptic & Audio Radar.
+///
+/// Silent by default. The phone is QUIET when the path is clear. We only
+/// signal when the user crosses into a new proximity zone:
+///
+///   - CAUTION  (≤ 1.5 m): single soft tap + 220 Hz blip
+///   - WARNING  (≤ 1.0 m): double tap        + 440 Hz blip
+///   - DANGER   (≤ 0.5 m): triple sharp tap  + 880 Hz urgent tone, repeats 1×/s
+///   - ALL CLEAR(> 1.5 m + hysteresis): one soft "ding" + 660 Hz blip
+///
+/// Hysteresis (0.15 m) prevents chatter when distance jitters around a
+/// threshold. No constant beeping, no habituation, no noise.
 @Observable
 final class HapticsManager {
     private var isSetup = false
+
+    enum ProximityZone: Int, Comparable {
+        case clear = 0      // > 1.5 m
+        case caution = 1    // 0.5 < d ≤ 1.5 m
+        case warning = 2    // 0.3 < d ≤ 1.0 m
+        case danger = 3     // d ≤ 0.5 m
+
+        static func < (lhs: ProximityZone, rhs: ProximityZone) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    /// Current zone — observable so views can react if they want to.
+    private(set) var currentZone: ProximityZone = .clear
 
     /// User-configurable intensity multiplier (0.0 to 1.0)
     var userIntensityLevel: Double = 1.0
@@ -26,36 +48,48 @@ final class HapticsManager {
     /// Whether audio proximity tones are enabled (off by default, user enables in Settings)
     var audioToneEnabled: Bool = false
 
-    /// Volume of the proximity beep tone: 0.0 (silent) to 1.0 (full)
-    var audioToneVolume: Float = 0.04
+    /// Volume of the proximity blip tones: 0.0 (silent) to 1.0 (full)
+    var audioToneVolume: Float = 0.4
 
-    /// Maximum detection range in meters
+    /// Maximum detection range in meters — anything farther is "clear".
     var maxRange: Double = 1.5
 
+    // MARK: - Zone thresholds (entry / exit pairs for hysteresis)
+    // Enter a tighter zone at the listed distance; leave it only once you've
+    // moved 0.15 m back out. Prevents flicker when the LiDAR depth jitters.
+    private let cautionEnter: Float = 1.50
+    private let cautionExit:  Float = 1.65
+    private let warningEnter: Float = 1.00
+    private let warningExit:  Float = 1.15
+    private let dangerEnter:  Float = 0.50
+    private let dangerExit:   Float = 0.65
+
     // MARK: - UIKit Haptic Generators
+    private let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
     private let heavyGenerator = UIImpactFeedbackGenerator(style: .heavy)
     private let rigidGenerator = UIImpactFeedbackGenerator(style: .rigid)
     private let notificationGenerator = UINotificationFeedbackGenerator()
 
-    // MARK: - Audio Tone Properties
+    // MARK: - Audio Tone Properties (transient blips, NOT continuous beeping)
 
     private var audioEngine: AVAudioEngine?
     private var toneSourceNode: AVAudioSourceNode?
     private var tonePhase: Double = 0.0
-    private var toneFrequency: Double = 0.0 // 0 = silent
+    private var toneFrequency: Double = 0.0   // 0 = silent
+    private var toneRemainingFrames: Int = 0  // counts down per audio frame; 0 = stop
     private let sampleRate: Double = 44100.0
 
-    /// Beeping: tone plays for `beepOn` then silent for `beepOff`
-    private var beepOn: Double = 0.08
-    private var beepOff: Double = 0.5
-    private var beepTimer: Double = 0.0
-    private var beepActive: Bool = true
-
-    /// Stereo panning: -1.0 = full left, 0.0 = center, 1.0 = full right
+    /// Stereo panning: -1.0 = full left, 0.0 = center, +1.0 = full right
     private var tonePan: Float = 0.0
 
+    /// Track danger-zone repeat timing — fires the urgent pattern 1×/sec while in danger.
+    private var lastDangerRepeat: Date = .distantPast
+    private let dangerRepeatInterval: TimeInterval = 1.0
+
     init() {
-        // Pre-warm the generators so first haptic fires instantly
+        lightGenerator.prepare()
+        mediumGenerator.prepare()
         heavyGenerator.prepare()
         rigidGenerator.prepare()
         notificationGenerator.prepare()
@@ -64,20 +98,19 @@ final class HapticsManager {
     func ensureEngine() {
         guard !isSetup else { return }
         isSetup = true
-        print("[HapticsManager] \u{2705} Engine setup (UIImpactFeedbackGenerator), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
-        // Only start the beep audio engine if the user has enabled beeps
+        print("[HapticsManager] ✅ Engine ready (silent-by-default), hapticsEnabled=\(hapticsEnabled), intensity=\(userIntensityLevel)")
         if audioToneEnabled {
             setupAudioTone()
         }
     }
 
-    /// Start the beep audio engine on demand (called when user enables beeps in Settings)
+    /// Start the audio engine on demand (called when user enables tones in Settings)
     func startAudioToneIfNeeded() {
         guard audioToneEnabled, audioEngine == nil else { return }
         setupAudioTone()
     }
 
-    /// Stop the beep audio engine (called when user disables beeps in Settings)
+    /// Stop the audio engine (called when user disables tones in Settings)
     func stopAudioTone() {
         audioEngine?.stop()
         if let node = toneSourceNode {
@@ -86,9 +119,14 @@ final class HapticsManager {
         audioEngine = nil
         toneSourceNode = nil
         toneFrequency = 0
+        toneRemainingFrames = 0
     }
 
-    // MARK: - Audio Proximity Tone
+    // MARK: - Audio Blip Engine
+    //
+    // We render a sine wave for `toneRemainingFrames` audio frames, then go
+    // silent. To play a fresh blip, call `playBlip(freq:duration:)` which
+    // reseeds frequency + duration. No continuous beeping anywhere.
 
     private func setupAudioTone() {
         let engine = AVAudioEngine()
@@ -96,31 +134,18 @@ final class HapticsManager {
         let sourceNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self = self else { return noErr }
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let freq = self.toneFrequency
-            let isEnabled = self.audioToneEnabled
-            let pan = self.tonePan  // -1 = left, 0 = center, +1 = right
-
-            // Stereo gains: equal-power panning
+            let pan = self.tonePan
             let leftGain = self.audioToneVolume * min(1.0, 1.0 - pan)
             let rightGain = self.audioToneVolume * min(1.0, 1.0 + pan)
 
             for frame in 0..<Int(frameCount) {
-                // Beep timing
-                self.beepTimer += 1.0 / self.sampleRate
-                let beepCycle = self.beepOn + self.beepOff
-                if self.beepTimer >= beepCycle {
-                    self.beepTimer -= beepCycle
-                }
-                let inBeep = self.beepTimer < self.beepOn
-
                 var rawSample: Float = 0.0
-                if freq > 0 && isEnabled && inBeep {
-                    self.tonePhase += 2.0 * .pi * freq / self.sampleRate
+                if self.toneRemainingFrames > 0 && self.toneFrequency > 0 && self.audioToneEnabled {
+                    self.tonePhase += 2.0 * .pi * self.toneFrequency / self.sampleRate
                     if self.tonePhase > 2.0 * .pi { self.tonePhase -= 2.0 * .pi }
                     rawSample = Float(sin(self.tonePhase))
+                    self.toneRemainingFrames -= 1
                 }
-
-                // Write stereo: channel 0 = left, channel 1 = right
                 for (index, buffer) in ablPointer.enumerated() {
                     let buf = buffer.mData?.assumingMemoryBound(to: Float.self)
                     let gain = index == 0 ? leftGain : rightGain
@@ -138,71 +163,156 @@ final class HapticsManager {
             try engine.start()
             self.audioEngine = engine
             self.toneSourceNode = sourceNode
-            print("[HapticsManager] ✅ Audio proximity tone started")
+            print("[HapticsManager] ✅ Blip engine ready")
         } catch {
-            print("[HapticsManager] ❌ Audio tone failed to start: \(error)")
+            print("[HapticsManager] ❌ Audio blip engine failed: \(error)")
         }
     }
 
-    /// Throttle: max 10 haptic events per second for close, 5 for far
-    private var lastHapticTime: Date = .distantPast
+    /// Play a single blip (pure tone burst) at `freq` Hz for `duration` seconds.
+    /// Called only on zone transitions, not continuously.
+    private func playBlip(freq: Double, duration: TimeInterval) {
+        guard audioToneEnabled else { return }
+        toneFrequency = freq
+        toneRemainingFrames = Int(duration * sampleRate)
+        // Engine may not be started yet (lazy) — start it.
+        startAudioToneIfNeeded()
+    }
 
-    /// Update haptic feedback AND audio tone based on obstacle distance and direction.
-    /// `normalizedX`: 0.0 = far left, 0.5 = center, 1.0 = far right
-    func updateForDistance(_ distance: Float, normalizedX: Float = 0.5) {
-        let withinRange = distance < Float(maxRange)
+    // MARK: - Public API
+    //
+    // The dashboard calls `updateForDistance` every LiDAR frame (~12 Hz). We
+    // do all our own zone tracking and only emit haptics + audio + speech
+    // requests on actual zone *transitions* (or repeats while in danger).
 
-        // Stereo panning: convert 0..1 → -1..+1
+    /// Computes the proximity zone for `distance` given the current zone
+    /// (so we can use hysteresis: the exit threshold is looser than entry).
+    private func zoneFor(distance: Float, current: ProximityZone) -> ProximityZone {
+        switch current {
+        case .clear:
+            if distance <= dangerEnter { return .danger }
+            if distance <= warningEnter { return .warning }
+            if distance <= cautionEnter { return .caution }
+            return .clear
+        case .caution:
+            if distance <= dangerEnter { return .danger }
+            if distance <= warningEnter { return .warning }
+            if distance > cautionExit { return .clear }
+            return .caution
+        case .warning:
+            if distance <= dangerEnter { return .danger }
+            if distance > warningExit { return .caution }
+            return .warning
+        case .danger:
+            if distance > dangerExit { return .warning }
+            return .danger
+        }
+    }
+
+    /// Call from the LiDAR observer. Returns the **transition** that occurred,
+    /// if any, so the view layer can speak appropriate context.
+    /// `normalizedX`: 0.0 = far left, 0.5 = center, 1.0 = far right.
+    @discardableResult
+    func updateForDistance(_ distance: Float, normalizedX: Float = 0.5) -> ZoneTransition? {
+        // Stereo pan tracks the obstacle for any blip we play this tick.
         tonePan = (normalizedX * 2.0) - 1.0
 
-        // Audio tone: map distance to frequency and beep rate (this is cheap, no throttle needed)
-        if withinRange {
-            let normalized = max(0, min(1, Double(distance) / maxRange))
-            // Frequency: 300 Hz (far) → 1200 Hz (very close)
-            toneFrequency = 300 + (1.0 - normalized) * 900
-            // Beep interval: 0.5s (far) → 0.06s (very close) — faster beeps when closer
-            beepOff = 0.06 + normalized * 0.44
-            beepOn = 0.06 + (1.0 - normalized) * 0.04 // Slightly longer beep when close
-        } else {
-            toneFrequency = 0 // Silent
+        let previousZone = currentZone
+        let newZone = zoneFor(distance: distance, current: previousZone)
+
+        if newZone != previousZone {
+            currentZone = newZone
+            let transition = ZoneTransition(from: previousZone, to: newZone, distance: distance, normalizedX: normalizedX)
+            firePattern(for: transition)
+            return transition
         }
 
-        // Haptics — throttled to avoid rate-limit warnings and respects user preference
-        guard hapticsEnabled else { return }
-        let now = Date()
-        // Faster haptic rate when closer: <0.5m = 10/sec, otherwise 5/sec
-        let hapticInterval: TimeInterval = distance < 0.5 ? 0.1 : 0.2
-        guard now.timeIntervalSince(lastHapticTime) >= hapticInterval else { return }
-        lastHapticTime = now
-        guard withinRange else { return }
-
-        let normalizedDistance = max(0, min(1, Double(distance) / maxRange))
-        let intensity = (1.0 - normalizedDistance) * userIntensityLevel
-
-        guard intensity > 0.05 else { return }
-
-        // Always fire heavy generator at max intensity for strongest feedback
-        heavyGenerator.impactOccurred(intensity: 1.0)
-
-        // Danger zone (<0.3m): also fire rigid generator + notification for extreme vibration
-        if distance < 0.3 {
-            rigidGenerator.impactOccurred(intensity: 1.0)
-            notificationGenerator.notificationOccurred(.error)
-        } else if distance < 0.5 {
-            // Close range: double-hit with rigid for extra punch
-            rigidGenerator.impactOccurred(intensity: 1.0)
+        // Same zone — only repeat the urgent pattern if we're still in DANGER.
+        if newZone == .danger {
+            let now = Date()
+            if now.timeIntervalSince(lastDangerRepeat) >= dangerRepeatInterval {
+                lastDangerRepeat = now
+                fireDangerPattern()
+            }
         }
 
-        // Re-prepare generators for next fire
-        heavyGenerator.prepare()
-        rigidGenerator.prepare()
-        notificationGenerator.prepare()
-
-        print("[HapticsManager] \u{2705} Haptic fired: dist=\(String(format: "%.2f", distance))m intensity=\(String(format: "%.2f", intensity))")
+        return nil
     }
 
-    /// Stop audio tone (e.g., when leaving Dashboard)
+    struct ZoneTransition {
+        let from: ProximityZone
+        let to: ProximityZone
+        let distance: Float
+        let normalizedX: Float
+
+        /// True when crossing into a tighter (more dangerous) zone.
+        var isEscalation: Bool { to.rawValue > from.rawValue }
+    }
+
+    private func firePattern(for transition: ZoneTransition) {
+        switch transition.to {
+        case .clear:
+            // All-clear: single soft "ding"
+            fireAllClearPattern()
+        case .caution:
+            fireCautionPattern()
+        case .warning:
+            fireWarningPattern()
+        case .danger:
+            lastDangerRepeat = Date()
+            fireDangerPattern()
+        }
+    }
+
+    private func fireCautionPattern() {
+        guard hapticsEnabled else { return }
+        mediumGenerator.impactOccurred(intensity: CGFloat(0.5 * userIntensityLevel))
+        mediumGenerator.prepare()
+        playBlip(freq: 220, duration: 0.20)
+        print("[HapticsManager] · CAUTION (1 tap, 220 Hz)")
+    }
+
+    private func fireWarningPattern() {
+        guard hapticsEnabled else { return }
+        heavyGenerator.impactOccurred(intensity: CGFloat(0.75 * userIntensityLevel))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+            guard let self = self else { return }
+            self.heavyGenerator.impactOccurred(intensity: CGFloat(0.75 * self.userIntensityLevel))
+            self.heavyGenerator.prepare()
+        }
+        playBlip(freq: 440, duration: 0.18)
+        print("[HapticsManager] ·· WARNING (2 taps, 440 Hz)")
+    }
+
+    private func fireDangerPattern() {
+        guard hapticsEnabled else { return }
+        rigidGenerator.impactOccurred(intensity: 1.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self = self else { return }
+            self.rigidGenerator.impactOccurred(intensity: 1.0)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
+            guard let self = self else { return }
+            self.rigidGenerator.impactOccurred(intensity: 1.0)
+            self.rigidGenerator.prepare()
+            self.notificationGenerator.notificationOccurred(.error)
+            self.notificationGenerator.prepare()
+        }
+        playBlip(freq: 880, duration: 0.30)
+        print("[HapticsManager] ··· DANGER (3 taps + alert, 880 Hz)")
+    }
+
+    private func fireAllClearPattern() {
+        guard hapticsEnabled else { return }
+        lightGenerator.impactOccurred(intensity: CGFloat(0.6 * userIntensityLevel))
+        lightGenerator.prepare()
+        playBlip(freq: 660, duration: 0.12)
+        print("[HapticsManager] ✓ ALL CLEAR (soft tap, 660 Hz)")
+    }
+
+    /// Stop any ringing tone (e.g., when leaving Dashboard).
     func stopTone() {
+        toneRemainingFrames = 0
         toneFrequency = 0
     }
 }

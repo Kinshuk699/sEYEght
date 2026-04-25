@@ -27,20 +27,12 @@ struct DashboardView: View {
     @State private var navigateToNavSearch = false
     @State private var isAnalyzingScene = false
 
-    /// Tracks the last spoken distance threshold to avoid repeating
-    @State private var lastSpokenThreshold: Float = Float.greatestFiniteMagnitude
-    /// Cooldown so we don't speak distance more than once every 3 seconds
-    @State private var lastDistanceSpeechTime: Date = .distantPast
-    /// Timer for repeating close-proximity warnings
-    @State private var proximityRepeatTimer: Timer?
     /// Suppress other speech during emergency mode
     @State private var isEmergencyActive = false
     /// Cooldown: last time a scene analysis was requested (prevents API flooding)
     @State private var lastAnalysisTime: Date = .distantPast
     /// Suppress distance warnings while scene description is playing
     @State private var sceneSpeechUntil: Date = .distantPast
-    /// Track when distance speech started — don't interrupt until it finishes
-    @State private var distanceSpeechUntil: Date = .distantPast
     /// Battery level warnings — track which thresholds have been spoken
     @State private var lastBatteryWarningLevel: Int = 100
     /// Timer for periodic battery checks
@@ -359,8 +351,6 @@ struct DashboardView: View {
             // Only stop the tone, NOT LiDAR or speech — those should keep running
             // when user is in Settings/Subscription screens
             hapticsManager.stopTone()
-            proximityRepeatTimer?.invalidate()
-            proximityRepeatTimer = nil
             batteryCheckTimer?.invalidate()
             batteryCheckTimer = nil
             arUpdateTimer?.invalidate()
@@ -376,8 +366,13 @@ struct DashboardView: View {
             if navigateToNavSearch || navigateToSettings {
                 return
             }
-            hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
-            speakDistanceIfNeeded(distance)
+            // Single source of truth: HapticsManager owns zone state and fires
+            // discrete haptic+audio patterns on transitions. We add spoken
+            // context only when the zone changes (escalations, all-clear).
+            let transition = hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
+            if let t = transition {
+                speakForTransition(t)
+            }
         }
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToSettings) {
@@ -422,90 +417,46 @@ struct DashboardView: View {
         }
     }
 
-    /// Speak distance when crossing key thresholds, and repeat if still in danger zone
-    private func speakDistanceIfNeeded(_ distance: Float) {
+    /// Speak short context on a proximity-zone transition. Quiet by default:
+    /// nothing is spoken while inside a stable zone — that's what the haptic
+    /// pattern is for. Speech only fires on **transitions** so the user always
+    /// associates a phrase with a felt change.
+    private func speakForTransition(_ t: HapticsManager.ZoneTransition) {
         guard !isEmergencyActive else { return }
-        // Check if voice is enabled for automatic announcements
-        // (User-initiated speech like .navigable() and 4-tap bypass this)
         guard settingsArray.first?.voiceEnabled ?? true else { return }
-        // Suppress distance speech while a scene description is being read
+        // Don't talk over a scene description.
         guard !isAnalyzingScene && Date() > sceneSpeechUntil else { return }
-        // Don't interrupt an in-progress distance announcement — let it finish
-        guard Date() > distanceSpeechUntil else { return }
-        // During active navigation, only warn for very close obstacles (< 0.5m)
-        // to avoid talking over turn-by-turn directions
-        if navigationManager.isNavigating && distance >= 0.5 { return }
-        
-        guard distance < 1.2 else {
-            // Cleared — reset so we can announce again when approaching
-            if lastSpokenThreshold < Float.greatestFiniteMagnitude {
-                lastSpokenThreshold = Float.greatestFiniteMagnitude
-            }
-            proximityRepeatTimer?.invalidate()
-            proximityRepeatTimer = nil
-            return
-        }
+        // During active turn-by-turn, only speak DANGER so we don't drown
+        // out directions with caution chatter.
+        if navigationManager.isNavigating && t.to != .danger { return }
 
-        // Determine which threshold was crossed
-        let threshold: Float
-        if distance < 0.3 {
-            threshold = 0.3
-        } else if distance < 0.5 {
-            threshold = 0.5
-        } else if distance < 1.0 {
-            threshold = 1.0
-        } else {
-            return
-        }
-
-        // Speak if this is a NEW threshold crossing + cooldown elapsed
-        let isNewThreshold = threshold != lastSpokenThreshold
-        guard isNewThreshold || Date().timeIntervalSince(lastDistanceSpeechTime) > 4.0 else { return }
-
-        lastSpokenThreshold = threshold
-        lastDistanceSpeechTime = Date()
-
-        // Directional context from LiDAR
         let direction: String
-        let x = lidarManager.closestNormalizedX
-        if x < 0.35 {
-            direction = "to your left"
-        } else if x > 0.65 {
-            direction = "to your right"
-        } else {
-            direction = "ahead"
+        switch t.normalizedX {
+        case ..<0.35: direction = "left"
+        case 0.65...: direction = "right"
+        default:      direction = "ahead"
         }
 
-        let distanceText: String
-        switch threshold {
-        case 0.3: distanceText = "Very close \(direction). Less than 1 foot."
-        case 0.5: distanceText = "Obstacle \(direction). About 2 feet."
-        case 1.0: distanceText = "Object \(direction). About 3 feet."
-        default: return
-        }
-
-        // Block new distance announcements for ~2.5 seconds (let current one finish)
-        distanceSpeechUntil = Date().addingTimeInterval(2.5)
-        
-        // Speak WITHOUT interrupting — if something else is playing, this gets queued
-        // The distanceSpeechUntil check ensures we won't try to speak again too soon
-        speak(distanceText, priority: false)
-
-        // For very close obstacles, set up a repeat timer
-        proximityRepeatTimer?.invalidate()
-        if threshold <= 0.5 {
-            proximityRepeatTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [self] _ in
-                let current = lidarManager.closestDistance
-                let voiceOn = settingsArray.first?.voiceEnabled ?? true
-                if current < 0.5 && !isEmergencyActive && !Narrator.shared.isSpeaking && voiceOn {
-                    let msg = current < 0.3 ? "Still very close." : "Still close. About 2 feet."
-                    speak(msg, priority: false)
-                } else {
-                    proximityRepeatTimer?.invalidate()
-                    proximityRepeatTimer = nil
-                }
+        let phrase: String
+        switch t.to {
+        case .clear:
+            // Only announce all-clear if user was actually in a danger/warning state
+            if t.from.rawValue >= HapticsManager.ProximityZone.warning.rawValue {
+                phrase = "Clear."
+            } else {
+                return
             }
+        case .caution:
+            // Don't bother speaking when escalating up FROM a worse zone (improvement).
+            if !t.isEscalation { return }
+            phrase = "Object \(direction). One and a half meters."
+        case .warning:
+            phrase = "Close \(direction). One meter."
+        case .danger:
+            phrase = "Stop. \(direction.capitalized). Half a meter."
         }
+
+        speak(phrase, priority: t.to == .danger)
     }
 
     /// Triple-tap: immediately speak current location
@@ -540,8 +491,6 @@ struct DashboardView: View {
     private func speakNatural(_ text: String) {
         // Give scene speech a 15-second window free from distance interruptions
         sceneSpeechUntil = Date().addingTimeInterval(15)
-        proximityRepeatTimer?.invalidate()
-        proximityRepeatTimer = nil
         Narrator.shared.stop()
         Narrator.shared.speak(text, rate: 0.45, volume: 0.9)
     }
