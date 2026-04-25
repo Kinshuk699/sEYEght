@@ -14,6 +14,7 @@ import MapKit
 struct NavigationSearchView: View {
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
@@ -82,17 +83,33 @@ struct NavigationSearchView: View {
                     ScrollView {
                         VStack(spacing: 2) {
                             ForEach(Array(searchResults.enumerated()), id: \.offset) { index, item in
-                                SearchResultRow(
-                                    item: item,
-                                    index: index,
-                                    isSelected: selectedIndex == index,
-                                    userLocation: navigationManager.userLocation
-                                )
-                                .onTapGesture(count: 2) {
-                                    confirmSelection(at: index)
-                                }
-                                .onTapGesture(count: 1) {
-                                    selectResult(at: index)
+                                Group {
+                                    if voiceOverEnabled {
+                                        Button {
+                                            confirmSelection(at: index)
+                                        } label: {
+                                            SearchResultRow(
+                                                item: item,
+                                                index: index,
+                                                isSelected: selectedIndex == index,
+                                                userLocation: navigationManager.userLocation
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        SearchResultRow(
+                                            item: item,
+                                            index: index,
+                                            isSelected: selectedIndex == index,
+                                            userLocation: navigationManager.userLocation
+                                        )
+                                        .onTapGesture(count: 2) {
+                                            confirmSelection(at: index)
+                                        }
+                                        .onTapGesture(count: 1) {
+                                            selectResult(at: index)
+                                        }
+                                    }
                                 }
                             }
                         }

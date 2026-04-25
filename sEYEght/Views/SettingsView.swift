@@ -257,16 +257,28 @@ struct SettingsView: View {
             hapticsManager.audioToneEnabled = settings.beepsEnabled
             hapticsManager.hapticsEnabled = settings.hapticsEnabled
         }
+        .onDisappear {
+            // Prevent any pending debounced setting-change speech from
+            // firing after the user has navigated away from this screen.
+            speechWorkItem?.cancel()
+            speechWorkItem = nil
+        }
     }
 
-    /// Debounced speech for slider changes — waits 0.6s after last change to speak
+    /// Debounced speech for slider changes — waits 0.6s after last change to speak.
+    /// Uses a cancellable Task so the speech is cancelled if the view is dismissed,
+    /// preventing setting announcements from leaking onto the next screen.
     private func speakSettingChange(_ text: String) {
         speechWorkItem?.cancel()
         let item = DispatchWorkItem {
             Narrator.shared.speak(text, rate: 0.5, volume: 0.7)
         }
         speechWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !item.isCancelled else { return }
+            item.perform()
+        }
     }
 }
 

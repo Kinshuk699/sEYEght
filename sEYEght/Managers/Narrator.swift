@@ -97,16 +97,6 @@ final class Narrator: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Alias for consistency with old API
-    func speakWithOpenAI(_ text: String) {
-        speak(text)
-    }
-
-    /// Alias for consistency with old API
-    func speakWithOpenAIAndWait(_ text: String) async {
-        await speakAndWait(text)
-    }
-
     func stop() {
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
@@ -154,30 +144,45 @@ extension View {
 
 // MARK: - Navigable View Modifier (Single-tap speaks, Double-tap activates)
 
-/// Makes a view accessible for blind users without system VoiceOver:
-/// - Single tap: speaks the label
-/// - Double tap: executes the action
+/// Makes a view accessible for blind users.
+/// - VoiceOver ON: standard Button (VoiceOver handles focus + double-tap activate)
+/// - VoiceOver OFF: single tap speaks the label, double tap executes action
 struct NavigableModifier: ViewModifier {
     let label: String
     let action: () -> Void
 
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
     func body(content: Content) -> some View {
-        content
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                // Double tap = activate
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-                action()
+        Group {
+            if voiceOverEnabled {
+                // VoiceOver users: standard activation via VoiceOver gestures
+                Button {
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    action()
+                } label: {
+                    content
+                }
+                .buttonStyle(.plain)
+            } else {
+                // Sighted/non-VoiceOver users: blind-first tap pattern
+                content
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                        action()
+                    }
+                    .onTapGesture(count: 1) {
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.impactOccurred()
+                        Narrator.shared.speak(label)
+                    }
             }
-            .onTapGesture(count: 1) {
-                // Single tap = speak label
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                Narrator.shared.speak(label)
-            }
-            .accessibilityLabel(label)
-            .accessibilityHint("Double tap to activate")
+        }
+        .accessibilityLabel(label)
+        .accessibilityHint("Double tap to activate")
     }
 }
 
