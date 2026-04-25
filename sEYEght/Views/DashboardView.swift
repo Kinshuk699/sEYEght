@@ -59,9 +59,20 @@ struct DashboardView: View {
                 })
                     .ignoresSafeArea()
 
-                // Semi-transparent overlay so UI elements are readable
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
+                // Layer 1b: Vertical scrim — dark at top & bottom for chrome
+                // legibility, clear in the middle so the camera stays visible.
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.55),
+                        Color.black.opacity(0.05),
+                        Color.black.opacity(0.05),
+                        Color.black.opacity(0.65)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             } else {
                 SeyeghtTheme.background.ignoresSafeArea()
             }
@@ -101,31 +112,27 @@ struct DashboardView: View {
 
             // Layer 3: UI controls
             VStack(spacing: 0) {
-                // Status bar
-                HStack {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(lidarManager.isRunning ? SeyeghtTheme.accent : Color.red)
-                            .frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
-                        Text(lidarManager.isRunning ? "Seyeght Active" : "Starting…")
-                            .font(SeyeghtTheme.caption)
-                            .foregroundColor(SeyeghtTheme.accent)
-                    }
-                    .accessibilityLabel(lidarManager.isRunning ? "Sight is active" : "Sight is starting")
-                    Spacer()
+                // ─── Status pill ──────────────────────────────────────────
+                HStack(spacing: 12) {
+                    StatusPill(
+                        isActive: lidarManager.isRunning,
+                        text: lidarManager.isRunning ? "Sight Active" : "Camera Off"
+                    )
 
                     Spacer()
 
                     // Distance readout (top-right)
                     if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
-                        Text(String(format: "%.1fm", lidarManager.closestDistance))
-                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        Text(String(format: "%.1f m", lidarManager.closestDistance))
+                            .font(.system(.title3, design: .monospaced).weight(.bold))
                             .foregroundColor(obstacleColor(proximity: 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
                             .accessibilityLabel(String(format: "Closest obstacle %.1f meters", lidarManager.closestDistance))
                     }
                 }
-                .padding(.top, 16)
+                .padding(.top, 8)
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
 
                 // Destination display from NavigationManager
@@ -150,73 +157,75 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Center action hint
-                VStack(spacing: 12) {
-                    Image(systemName: isAnalyzingScene ? "eye.fill" : "hand.tap.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(SeyeghtTheme.accent)
-                        .symbolEffect(.pulse, isActive: isAnalyzingScene)
-                    Text(isAnalyzingScene ? "Describing scene…" : "4-tap to describe")
-                        .font(SeyeghtTheme.caption)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(12)
+                // ─── Center: subtle "looking" feedback ────────────────────
+                // No persistent button — describing is a dedicated 4-tap
+                // gesture so the user can't trigger it by accident while
+                // the phone hangs from a lanyard or sits in a pocket.
+                // We only show feedback WHILE analyzing.
+                if isAnalyzingScene {
+                    HStack(spacing: 10) {
+                        Image(systemName: "eye.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(SeyeghtTheme.accent)
+                            .symbolEffect(.pulse, options: .repeating, isActive: true)
+                        Text("Looking…")
+                            .font(.system(.headline, design: .rounded).weight(.semibold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(SeyeghtTheme.accent.opacity(0.6), lineWidth: 1))
+                    .accessibilityHidden(true)
                 }
-                .accessibilityHidden(true)
 
                 Spacer()
 
-                // Bottom bar: settings (left) + navigation (right)
-                HStack {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(SeyeghtTheme.accent)
-                        .padding(10)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                        .navigable("Settings button") {
-                            navigateToSettings = true
-                        }
+                // ─── Bottom bar: Settings (left) + Navigate (right) ───────
+                // Uses .navigable() — single-tap speaks the label so the
+                // user can confirm what they're about to activate, then a
+                // double-tap actually opens it. Prevents accidental nav.
+                HStack(alignment: .center) {
+                    BigIconButton(
+                        systemName: "gearshape.fill",
+                        label: "Settings"
+                    )
+                    .navigable("Settings") {
+                        navigateToSettings = true
+                    }
 
                     Spacer()
 
-                    // Stop navigation button (only visible during active nav)
                     if navigationManager.isNavigating {
                         Button {
                             navigationManager.stopNavigation()
                             speak("Navigation stopped.", priority: true)
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 14, weight: .bold))
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18, weight: .bold))
                                 Text("Stop")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(.body, design: .rounded).weight(.semibold))
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.red.opacity(0.8))
-                            .clipShape(Capsule())
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(SeyeghtTheme.danger, in: Capsule())
                         }
                         .accessibilityLabel("Stop navigation")
                         .accessibilityHint("Double tap to cancel the current route")
                     }
 
-                    // Navigation mode button
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(SeyeghtTheme.accent)
-                        .padding(10)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                        .navigable("Navigate button. Find a destination.") {
-                            navigateToNavSearch = true
-                        }
+                    BigIconButton(
+                        systemName: "location.fill",
+                        label: "Navigate"
+                    )
+                    .navigable("Navigate. Find a destination.") {
+                        navigateToNavSearch = true
+                    }
                 }
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
-                .padding(.bottom, 24)
+                .padding(.bottom, 8)
             }
 
             // Compass arrow overlay (only during navigation)
@@ -408,7 +417,9 @@ struct DashboardView: View {
         generator.impactOccurred()
 
         isAnalyzingScene = true
-        speak("Looking...")
+        // No pre-speech ("Looking…") — the haptic + visual pulse confirms
+        // the tap. Speaking it then immediately interrupting it with the
+        // result was getting cut off mid-word.
         print("[DashboardView] Capturing scene for on-device analysis")
 
         // Pass current LiDAR distance so the description can anchor with

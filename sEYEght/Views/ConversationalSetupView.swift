@@ -43,6 +43,31 @@ struct ConversationalSetupView: View {
         case mountPhone
         case featureDemo
         case ready
+
+        /// SF Symbol shown inside the orb for this phase.
+        var iconName: String {
+            switch self {
+            case .welcome:      return "sparkles"
+            case .modeChoice:   return "hand.tap.fill"
+            case .permissions:  return "lock.shield.fill"
+            case .mountPhone:   return "iphone.gen3"
+            case .featureDemo:  return "wand.and.stars"
+            case .ready:        return "checkmark"
+            }
+        }
+
+        /// Quiet helper text under the big title — gives sighted users
+        /// context for what's happening without overwhelming the screen.
+        var subtitle: String {
+            switch self {
+            case .welcome:      return "Your AI-powered guide is starting up"
+            case .modeChoice:   return "Single tap for Quick · Double tap for Full"
+            case .permissions:  return "Sight needs camera & location to keep you safe"
+            case .mountPhone:   return "Hold your phone upright at chest height"
+            case .featureDemo:  return "Let's try a quick scene description"
+            case .ready:        return "Everything's set — let's go"
+            }
+        }
     }
 
     var body: some View {
@@ -52,31 +77,114 @@ struct ConversationalSetupView: View {
                 ARCameraView(session: lidarManager.session)
                     .ignoresSafeArea()
                 // Dim overlay so text stays readable
-                Color.black.opacity(0.45).ignoresSafeArea()
+                Color.black.opacity(0.55).ignoresSafeArea()
             } else {
-                Color.black.ignoresSafeArea()
+                // Subtle radial vignette so the orb feels like it's emitting
+                // light against a dark world — far more cinematic than flat black.
+                ZStack {
+                    Color.black
+                    RadialGradient(
+                        colors: [
+                            SeyeghtTheme.accent.opacity(0.18),
+                            SeyeghtTheme.accent.opacity(0.04),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 20,
+                        endRadius: 380
+                    )
+                }
+                .ignoresSafeArea()
             }
 
-            VStack(spacing: 32) {
+            VStack(spacing: 28) {
                 Spacer()
 
-                // Pulsing gold circle — visual anchor for low-vision users
-                Circle()
-                    .fill(SeyeghtTheme.accent.opacity(0.8))
-                    .frame(width: 120, height: 120)
-                    .scaleEffect(isPulsing ? 1.15 : 0.95)
-                    .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isPulsing)
+                // ─── The orb ──────────────────────────────────────────────
+                // Siri-style: 3 pulsing concentric rings + a luminous core
+                // with a phase-matching SF Symbol. Reads as "the assistant
+                // is listening / thinking" and gives blind users a strong
+                // visual anchor that low-vision users can also see clearly.
+                ZStack {
+                    // Outer pulsing rings — staggered for a "breathing" feel
+                    ForEach(0..<3) { i in
+                        Circle()
+                            .strokeBorder(SeyeghtTheme.accent.opacity(0.35), lineWidth: 1.5)
+                            .frame(width: 180, height: 180)
+                            .scaleEffect(isPulsing ? 1.6 + CGFloat(i) * 0.25 : 0.9)
+                            .opacity(isPulsing ? 0.0 : 0.55)
+                            .animation(
+                                .easeOut(duration: 2.4)
+                                    .repeatForever(autoreverses: false)
+                                    .delay(Double(i) * 0.7),
+                                value: isPulsing
+                            )
+                    }
+
+                    // Luminous core
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color(hex: "FFE19A"),       // bright highlight
+                                    SeyeghtTheme.accent,        // amber body
+                                    Color(hex: "C99A2E")        // darker rim
+                                ],
+                                center: .init(x: 0.35, y: 0.3),
+                                startRadius: 4,
+                                endRadius: 110
+                            )
+                        )
+                        .frame(width: 160, height: 160)
+                        .shadow(color: SeyeghtTheme.accent.opacity(0.55), radius: 30)
+                        .scaleEffect(isPulsing ? 1.04 : 0.96)
+                        .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: isPulsing)
+
+                    // Phase icon — large, dark on amber, high contrast
+                    Image(systemName: phase.iconName)
+                        .font(.system(size: 64, weight: .bold))
+                        .foregroundColor(.black.opacity(0.78))
+                        .symbolEffect(.bounce, value: phase)
+                        .accessibilityHidden(true)
+                }
+                .accessibilityHidden(true)
+
+                // ─── Title + subtitle ─────────────────────────────────────
+                VStack(spacing: 10) {
+                    Text(statusText)
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                        .accessibilityAddTraits(.isHeader)
+
+                    Text(phase.subtitle)
+                        .font(.system(size: 17, weight: .regular, design: .rounded))
+                        .foregroundColor(.white.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityHidden(true) // read by Narrator already
+                }
+                .readable(statusText)
+
+                Spacer()
+
+                // ─── Tap-choice chips (only during mode pick) ─────────────
+                if waitingForTap && setupMode == .none {
+                    HStack(spacing: 12) {
+                        TapChip(symbol: "hand.tap.fill", title: "Single tap", subtitle: "Quick")
+                        TapChip(symbol: "hand.tap.fill", title: "Double tap", subtitle: "Full")
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .accessibilityHidden(true)
-
-                Text(statusText)
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .readable(statusText)
-
-                Spacer()
+                } else {
+                    Spacer().frame(height: 32)
+                }
             }
+            .animation(.easeInOut(duration: 0.35), value: waitingForTap)
         }
         .contentShape(Rectangle())  // Makes entire area tappable
         .onTapGesture(count: 1) {
@@ -751,5 +859,37 @@ struct ConversationalSetupView: View {
 
         // Navigate to Dashboard
         navigateToDashboard = true
+    }
+}
+
+// MARK: - TapChip
+
+/// Visible affordance shown during the mode-choice phase so sighted users
+/// instantly understand what single-tap vs double-tap will do. Hidden from
+/// VoiceOver because the conversation already speaks the same prompt.
+private struct TapChip: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(SeyeghtTheme.accent)
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+            Text(subtitle)
+                .font(.system(size: 12, weight: .regular, design: .rounded))
+                .foregroundColor(.white.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(SeyeghtTheme.accent.opacity(0.4), lineWidth: 1)
+        )
     }
 }

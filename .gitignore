@@ -6,6 +6,7 @@ sEYEght/Secrets.swift
 
 # Xcode
 build/
+build-*/
 DerivedData/
 *.xcuserstate
 xcuserdata/
