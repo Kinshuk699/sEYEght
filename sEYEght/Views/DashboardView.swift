@@ -286,11 +286,11 @@ struct DashboardView: View {
                     hapticsManager.hapticsEnabled = settings.hapticsEnabled
                 }
 
-                lidarManager.start()
                 hapticsManager.ensureEngine()
                 ShakeDetector.shared.start()
                 startBatteryMonitoring()
                 startAROverlayUpdates()
+                Task { @MainActor in await startLiDARWhenAuthorized() }
                 return
             }
             appState.hasAnnouncedWelcomeThisSession = true
@@ -328,7 +328,13 @@ struct DashboardView: View {
                 }
 
                 hapticsManager.ensureEngine()
-                lidarManager.start()
+
+                // Wait until camera permission is actually granted before
+                // starting ARKit — ARSession.run() with .notDetermined or
+                // .denied silently produces zero frames and never recovers,
+                // which is what makes the dashboard look frozen on a fresh
+                // install. Poll up to 30 s so the user can grant in Settings.
+                await startLiDARWhenAuthorized()
 
                 // Wire all managers' speech through Dashboard's single synthesizer
                 visionManager.onSpeechRequest = { text in speakNatural(text) }
@@ -405,7 +411,12 @@ struct DashboardView: View {
         speak("Looking...")
         print("[DashboardView] Capturing scene for on-device analysis")
 
-        visionManager.captureAndAnalyze(from: lidarManager.session)
+        // Pass current LiDAR distance so the description can anchor with
+        // "about one meter ahead". Only pass valid finite distances; the
+        // simulator and very-far targets get nil.
+        let dist = lidarManager.closestDistance
+        let validDist: Float? = (dist > 0 && dist.isFinite && dist < 8.0) ? dist : nil
+        visionManager.captureAndAnalyze(from: lidarManager.session, closestDistance: validDist)
 
         // Wait for VisionManager to finish processing, then clear the flag
         Task {
@@ -415,6 +426,27 @@ struct DashboardView: View {
             }
             isAnalyzingScene = false
         }
+    }
+
+    /// Start LiDAR as soon as the user grants camera permission. ARKit will
+    /// silently produce zero frames if started before permission is granted,
+    /// so we poll authorization status (it changes to .authorized the moment
+    /// the system dialog is dismissed with Allow). Bails after 30 s so we
+    /// never spin forever.
+    @MainActor
+    private func startLiDARWhenAuthorized() async {
+        if lidarManager.isRunning { return }
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+                lidarManager.start()
+                print("[DashboardView] ✅ Camera authorized — LiDAR started")
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        print("[DashboardView] ⚠️ Camera permission not granted within 30 s")
+        speak("Sight needs camera access. Open iPhone Settings and enable it.", priority: true)
     }
 
     /// Speak short context on a proximity-zone transition. Quiet by default:
