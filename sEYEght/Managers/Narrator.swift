@@ -15,6 +15,7 @@ final class Narrator: NSObject, @unchecked Sendable {
 
     private let synthesizer = AVSpeechSynthesizer()
     private var continuation: CheckedContinuation<Void, Never>?
+    private var activeUtterance: AVSpeechUtterance?
     private var selectedVoice: AVSpeechSynthesisVoice?
 
     /// True if we found an enhanced/premium voice
@@ -75,11 +76,22 @@ final class Narrator: NSObject, @unchecked Sendable {
         utterance.postUtteranceDelay = 0.1
 
         print("[Narrator] Speaking: \"\(text.prefix(60))\"")
+        self.activeUtterance = utterance
         synthesizer.speak(utterance)
     }
 
     func speakAndWait(_ text: String, rate: Float = 0.5, volume: Float = 0.9) async {
-        stop()
+        // Cancel any in-flight speech and resume any prior waiter BEFORE
+        // installing the new continuation. Stale didCancel callbacks for the
+        // previous utterance are filtered out by `activeUtterance` identity
+        // checks in the delegate.
+        let oldCont = continuation
+        continuation = nil
+        activeUtterance = nil
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+        oldCont?.resume()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = selectedVoice
@@ -93,16 +105,57 @@ final class Narrator: NSObject, @unchecked Sendable {
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             self.continuation = cont
+            self.activeUtterance = utterance
             synthesizer.speak(utterance)
         }
     }
 
     func stop() {
+        let cont = continuation
+        continuation = nil
+        activeUtterance = nil
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
-        continuation?.resume()
-        continuation = nil
+        cont?.resume()
+    }
+
+    /// Pause without killing the in-flight utterance. Use when app goes to
+    /// background mid-sentence — the continuation stays alive, so any
+    /// `speakAndWait` call remains suspended (the conversation does NOT advance).
+    /// Call `resumeIfPaused()` when the app returns to foreground.
+    func pause() {
+        if synthesizer.isSpeaking && !synthesizer.isPaused {
+            synthesizer.pauseSpeaking(at: .immediate)
+            print("[Narrator] ⏸ Paused")
+        }
+    }
+
+    /// Resume a paused utterance. Safe to call even if not paused.
+    /// If the synthesizer was killed by iOS while backgrounded (rare), we
+    /// replay the active utterance from the beginning so the user hears it.
+    func resumeIfPaused() {
+        if synthesizer.isPaused {
+            synthesizer.continueSpeaking()
+            print("[Narrator] ▶️ Resumed")
+            return
+        }
+        // Not paused, but if we still have an active utterance and a waiting
+        // continuation, the synthesizer was killed by iOS. Replay it.
+        if let utterance = activeUtterance, continuation != nil, !synthesizer.isSpeaking {
+            print("[Narrator] ↻ Replaying killed utterance")
+            // Build a fresh utterance from the same text — AVSpeechUtterance
+            // instances can't be re-spoken once delivered.
+            let replay = AVSpeechUtterance(string: utterance.speechString)
+            replay.voice = utterance.voice
+            replay.rate = utterance.rate
+            replay.volume = utterance.volume
+            replay.pitchMultiplier = utterance.pitchMultiplier
+            replay.preUtteranceDelay = 0.0
+            replay.postUtteranceDelay = utterance.postUtteranceDelay
+            activeUtterance = replay
+            synthesizer.speak(replay)
+        }
     }
 }
 
@@ -110,13 +163,20 @@ final class Narrator: NSObject, @unchecked Sendable {
 
 extension Narrator: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        continuation?.resume()
+        // Ignore callbacks for utterances that have already been superseded.
+        guard utterance === activeUtterance else { return }
+        let cont = continuation
         continuation = nil
+        activeUtterance = nil
+        cont?.resume()
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        continuation?.resume()
+        guard utterance === activeUtterance else { return }
+        let cont = continuation
         continuation = nil
+        activeUtterance = nil
+        cont?.resume()
     }
 }
 

@@ -28,6 +28,7 @@ struct ConversationalSetupView: View {
     @State private var waitingForTap = false  // For user choice input
     @State private var waitingForSettingsReturn = false  // User is in Settings app
     @State private var hasReturnedFromSettings = false  // Set true when scenePhase becomes .active while waiting
+    @State private var conversationStarted = false  // Re-entry guard for .task
 
     enum SetupMode {
         case none      // Not yet chosen
@@ -89,6 +90,14 @@ struct ConversationalSetupView: View {
             DashboardView()
         }
         .task {
+            // Guard against SwiftUI re-running .task on view re-creation.
+            // Without this, the conversation can launch twice in parallel and
+            // every line overlaps with itself.
+            guard !conversationStarted else {
+                print("[Setup] .task fired again — ignoring (conversation already running)")
+                return
+            }
+            conversationStarted = true
             isPulsing = true
             defer { Narrator.shared.stop() }
             await runConversation()
@@ -97,6 +106,8 @@ struct ConversationalSetupView: View {
             switch newPhase {
             case .active:
                 isPulsing = true
+                // Resume any speech that was paused when we went to background.
+                Narrator.shared.resumeIfPaused()
                 // If user is returning from Settings, force an immediate permission
                 // refresh AND interrupt any in-flight reminder so the polling loop
                 // can pick up the new state on its very next 500 ms tick.
@@ -104,12 +115,16 @@ struct ConversationalSetupView: View {
                     permissionsManager.checkCurrentStatuses()
                     hasReturnedFromSettings = true
                     print("[Setup] scenePhase=.active while waiting; camera=\(permissionsManager.cameraStatus) location=\(permissionsManager.locationStatus)")
-                    // Interrupt any reminder that's currently being spoken so the
-                    // loop's next iteration runs without delay.
-                    Narrator.shared.stop()
+                    // If both granted, interrupt so the loop's next iteration
+                    // detects the grant and speaks the confirmation.
+                    if permissionsManager.cameraStatus && permissionsManager.locationStatus {
+                        Narrator.shared.stop()
+                    }
                 }
             case .background, .inactive:
-                Narrator.shared.stop()
+                // Pause — don't kill. The conversation must NOT skip ahead while
+                // the user is in Settings or on the home screen.
+                Narrator.shared.pause()
             @unknown default:
                 break
             }
