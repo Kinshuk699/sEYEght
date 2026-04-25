@@ -17,7 +17,6 @@ struct sEYEghtApp: App {
     @State private var hapticsManager = HapticsManager()
     @State private var visionManager = VisionManager()
     @State private var navigationManager = NavigationManager()
-    @State private var subscriptionManager = SubscriptionManager()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -34,7 +33,6 @@ struct sEYEghtApp: App {
             .environment(hapticsManager)
             .environment(visionManager)
             .environment(navigationManager)
-            .environment(subscriptionManager)
             .preferredColorScheme(.dark)
             .onAppear {
                 // Immediate haptic so blind users know the app launched

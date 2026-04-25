@@ -20,12 +20,10 @@ struct DashboardView: View {
     @Environment(HapticsManager.self) private var hapticsManager
     @Environment(VisionManager.self) private var visionManager
     @Environment(NavigationManager.self) private var navigationManager
-    @Environment(SubscriptionManager.self) private var subscriptionManager
     @Environment(\.modelContext) private var modelContext
     @Query private var settingsArray: [UserSettings]
 
     @State private var navigateToSettings = false
-    @State private var navigateToSubscription = false
     @State private var navigateToNavSearch = false
     @State private var isAnalyzingScene = false
 
@@ -375,8 +373,7 @@ struct DashboardView: View {
         }
         .onChange(of: lidarManager.closestDistance) { _, distance in
             // Only fire haptics/speech when Dashboard is the active screen
-            if navigateToNavSearch || navigateToSettings || navigateToSubscription {
-                print("[DashboardView] ❌ Haptics blocked: child screen open (nav=\(navigateToNavSearch) set=\(navigateToSettings) sub=\(navigateToSubscription))")
+            if navigateToNavSearch || navigateToSettings {
                 return
             }
             hapticsManager.updateForDistance(distance, normalizedX: lidarManager.closestNormalizedX)
@@ -385,9 +382,6 @@ struct DashboardView: View {
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $navigateToSettings) {
             SettingsView()
-        }
-        .navigationDestination(isPresented: $navigateToSubscription) {
-            SubscriptionView()
         }
         .navigationDestination(isPresented: $navigateToNavSearch) {
             NavigationSearchView()

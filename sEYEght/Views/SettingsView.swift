@@ -15,7 +15,6 @@ struct SettingsView: View {
     @Environment(HapticsManager.self) private var hapticsManager
     @Environment(AppState.self) private var appState
     @Query private var settingsArray: [UserSettings]
-    @State private var navigateToSubscription = false
     @State private var navigateToSetup = false
     @State private var speechWorkItem: DispatchWorkItem?
 
@@ -145,36 +144,6 @@ struct SettingsView: View {
                     displayValue: String(format: "%.1fx", settings.speechRate * 2)
                 )
 
-                // MARK: - AI Vision
-                SectionHeader(title: "AI VISION")
-
-                Button {
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                    print("[SettingsView] Manage Subscription tapped")
-                    navigateToSubscription = true
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Manage Subscription")
-                                .font(SeyeghtTheme.bodyBold)
-                                .foregroundColor(SeyeghtTheme.primaryText)
-                            Text("Unlock scene descriptions")
-                                .font(SeyeghtTheme.caption)
-                                .foregroundColor(SeyeghtTheme.secondaryText)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(SeyeghtTheme.accent)
-                            .accessibilityHidden(true)
-                    }
-                    .padding(20)
-                    .background(SeyeghtTheme.cardBackground)
-                    .cornerRadius(SeyeghtTheme.cardCornerRadius)
-                }
-                .accessibilityLabel("Manage Subscription")
-                .accessibilityHint("Double tap to manage AI Vision subscription")
-
                 // MARK: - About
                 SectionHeader(title: "ABOUT")
 
@@ -224,9 +193,6 @@ struct SettingsView: View {
             }
         }
         .toolbarBackground(SeyeghtTheme.background, for: .navigationBar)
-        .navigationDestination(isPresented: $navigateToSubscription) {
-            SubscriptionView()
-        }
         .navigationDestination(isPresented: $navigateToSetup) {
             ConversationalSetupView()
         }
