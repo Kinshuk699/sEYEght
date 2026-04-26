@@ -17,15 +17,12 @@ import UIKit
 ///
 ///   1. **Text** — any signs, labels, prices, room numbers in front of them
 ///      (uses `.accurate` recognition because signs are why blind users tap).
-///   2. **People** — a face count ("two people in front of you") via
-///      `VNDetectFaceRectanglesRequest`. Faces, not torsos, because that's
-///      what users care about ("am I being looked at?").
+///   2. **Objects** — a short, deduplicated list of common things in view
+///      ("laptop, water bottle, two people") via Apple's on-device object
+///      recognizer. People come from the face detector for accuracy.
 ///   3. **Distance** — the closest LiDAR distance, spoken as meters.
 ///
-/// No "structure / conveyance / portal" taxonomy garbage — we removed
-/// `VNClassifyImageRequest` because its top labels are useless to a blind
-/// user. If we can't read text and don't see faces, we say so and give the
-/// distance.
+/// 100% on-device, no internet. Same building blocks Apple Magnifier uses.
 @Observable
 final class VisionManager {
     var isProcessing = false
@@ -84,8 +81,14 @@ final class VisionManager {
             // Face count via face rectangles (lighter than landmarks).
             let faceRequest = VNDetectFaceRectanglesRequest()
 
+            // Object recognition — Apple's built-in, on-device classifier.
+            // Returns labels like "laptop", "chair", "bottle", "car" with
+            // confidence scores. We filter to high-confidence + dedupe + drop
+            // the "person" class because the face detector handles people.
+            let objectRequest = VNClassifyImageRequest()
+
             do {
-                try handler.perform([textRequest, faceRequest])
+                try handler.perform([textRequest, faceRequest, objectRequest])
             } catch {
                 print("[VisionManager] ❌ Vision analysis failed: \(error)")
                 DispatchQueue.main.async {
@@ -98,6 +101,7 @@ final class VisionManager {
             let description = self.buildDescription(
                 textResults: textRequest.results,
                 faceResults: faceRequest.results,
+                objectResults: objectRequest.results,
                 closestDistance: closestDistance
             )
 
@@ -112,10 +116,11 @@ final class VisionManager {
     }
 
     /// Compose the final spoken sentence. Order matters — text first because
-    /// it's the most actionable, then faces, then distance as anchor.
+    /// it's the most actionable, then objects, then people, then distance.
     private func buildDescription(
         textResults: [VNRecognizedTextObservation]?,
         faceResults: [VNFaceObservation]?,
+        objectResults: [VNClassificationObservation]?,
         closestDistance: Float?
     ) -> String {
         // Too-close guard: if the closest LiDAR pixel is under ~0.4 m, the
@@ -148,7 +153,30 @@ final class VisionManager {
             }
         }
 
-        // 2. Faces
+        // 2. Objects — take top high-confidence labels, dedupe, drop noisy
+        //    abstract categories. We want concrete nouns the user can act on.
+        if let objects = objectResults {
+            let banned: Set<String> = [
+                "person", "people", "face", "head", "hand", "arm", "leg", "body",
+                "indoor", "outdoor", "room", "object", "animal", "plant",
+                "text", "document", "sign", "poster"  // text request handles these
+            ]
+            let labels = objects
+                .filter { $0.confidence >= 0.5 }
+                .prefix(8)
+                .map { $0.identifier.lowercased().replacingOccurrences(of: "_", with: " ") }
+                .filter { label in !banned.contains(where: { label.contains($0) }) }
+
+            // Dedupe while preserving order, cap at 4 items.
+            var seen = Set<String>()
+            let unique = labels.filter { seen.insert($0).inserted }.prefix(4)
+
+            if !unique.isEmpty {
+                parts.append("In front of you: \(unique.joined(separator: ", "))")
+            }
+        }
+
+        // 3. Faces
         if let faces = faceResults, !faces.isEmpty {
             let count = faces.count
             switch count {
@@ -158,7 +186,7 @@ final class VisionManager {
             }
         }
 
-        // 3. Distance — always include if we have it. Anchors the user.
+        // 4. Distance — always include if we have it. Anchors the user.
         if let d = closestDistance, d > 0, d.isFinite, d < 8.0 {
             parts.append(distancePhrase(d))
         }

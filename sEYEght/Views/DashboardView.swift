@@ -77,60 +77,18 @@ struct DashboardView: View {
                 SeyeghtTheme.background.ignoresSafeArea()
             }
 
-            // Layer 2: LiDAR obstacle indicator
-            // Shows a pulsing colored circle where the closest obstacle is detected
-            if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
-                GeometryReader { geo in
-                    let padding: CGFloat = 50
-                    let rawX = CGFloat(lidarManager.closestNormalizedX) * geo.size.width
-                    let xPos = min(max(rawX, padding), geo.size.width - padding)
-                    let yPos = geo.size.height * 0.35
-                    let proximity = max(0, min(1, 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
-                    let bubbleSize = 40 + proximity * 40
-
-                    // Obstacle marker — red when close, yellow when medium, green when far
-                    Circle()
-                        .fill(obstacleColor(proximity: proximity))
-                        .frame(width: bubbleSize, height: bubbleSize)
-                        .opacity(0.7 + proximity * 0.3)
-                        .shadow(color: obstacleColor(proximity: proximity), radius: 10 + proximity * 20)
-                        .position(x: xPos, y: yPos)
-                        .accessibilityHidden(true)
-
-                    // Distance label near the indicator
-                    Text(String(format: "%.1fm", lidarManager.closestDistance))
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(obstacleColor(proximity: proximity).opacity(0.8))
-                        .cornerRadius(8)
-                        .position(x: xPos, y: yPos + bubbleSize / 2 + 16)
-                        .accessibilityHidden(true)
-                }
-            }
-
             // Layer 3: UI controls
             VStack(spacing: 0) {
                 // ─── Status pill ──────────────────────────────────────────
+                // Just "Sight Active" — no distance pill. The user is blind;
+                // visual readouts of distance numbers help nobody. Voice +
+                // haptics carry that information.
                 HStack(spacing: 12) {
                     StatusPill(
                         isActive: lidarManager.isRunning,
                         text: lidarManager.isRunning ? "Sight Active" : "Camera Off"
                     )
-
                     Spacer()
-
-                    // Distance readout (top-right)
-                    if lidarManager.closestDistance < Float(hapticsManager.maxRange) {
-                        Text(String(format: "%.1f m", lidarManager.closestDistance))
-                            .font(.system(.title3, design: .monospaced).weight(.bold))
-                            .foregroundColor(obstacleColor(proximity: 1.0 - Double(lidarManager.closestDistance) / hapticsManager.maxRange))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .accessibilityLabel(String(format: "Closest obstacle %.1f meters", lidarManager.closestDistance))
-                    }
                 }
                 .padding(.top, 8)
                 .padding(.horizontal, SeyeghtTheme.horizontalPadding)
@@ -536,18 +494,6 @@ struct DashboardView: View {
         sceneSpeechUntil = Date().addingTimeInterval(15)
         Narrator.shared.stop()
         Narrator.shared.speak(text, rate: 0.45, volume: 0.9)
-    }
-
-    /// Returns a color from green (far) → yellow → red (close) based on proximity 0…1
-    private func obstacleColor(proximity: Double) -> Color {
-        let clamped = max(0, min(1, proximity))
-        if clamped < 0.5 {
-            // Green → Yellow
-            return Color(red: clamped * 2, green: 1.0, blue: 0)
-        } else {
-            // Yellow → Red
-            return Color(red: 1.0, green: 1.0 - (clamped - 0.5) * 2, blue: 0)
-        }
     }
 
     // MARK: - Battery Monitoring
