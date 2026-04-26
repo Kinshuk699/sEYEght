@@ -35,26 +35,35 @@ final class VisionManager {
     /// Speech rate set from user settings (kept for API compatibility)
     var speechRate: Float = 0.5
 
-    /// YOLOv8n CoreML model, loaded once at init.
-    /// Compiled by Xcode at build time from `yolov8n.mlpackage` -> `yolov8n.mlmodelc`.
+    /// YOLOv8n-OIV7 CoreML model. Loaded on a background queue right after
+    /// init() returns — NEVER on the main thread, or iOS watchdog will
+    /// SIGKILL the app at launch (0x8badf00d) for blocking the main thread
+    /// during scene setup. Until it's ready, describes fall back to text +
+    /// faces + distance only (still useful).
     /// Not @Observable-tracked because it never changes after load.
     @ObservationIgnored
     private var yoloModel: VNCoreMLModel?
 
     init() {
-        self.yoloModel = Self.loadYOLOModel()
+        // Defer model load to background so app launches instantly.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let model = Self.loadYOLOModel()
+            DispatchQueue.main.async {
+                self?.yoloModel = model
+            }
+        }
     }
 
     private static func loadYOLOModel() -> VNCoreMLModel? {
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all   // CPU + GPU + Neural Engine
-            guard let modelURL = Bundle.main.url(forResource: "yolov8n", withExtension: "mlmodelc") else {
-                print("[VisionManager] ❌ yolov8n.mlmodelc not found in bundle")
+            guard let modelURL = Bundle.main.url(forResource: "yolov8n-oiv7", withExtension: "mlmodelc") else {
+                print("[VisionManager] ❌ yolov8n-oiv7.mlmodelc not found in bundle")
                 return nil
             }
             let model = try MLModel(contentsOf: modelURL, configuration: config)
-            print("[VisionManager] ✅ YOLOv8n loaded")
+            print("[VisionManager] ✅ YOLOv8n-OIV7 loaded (600 classes)")
             return try VNCoreMLModel(for: model)
         } catch {
             print("[VisionManager] ❌ YOLO load failed: \(error)")
@@ -109,12 +118,15 @@ final class VisionManager {
             // Face count via face rectangles (lighter than landmarks).
             let faceRequest = VNDetectFaceRectanglesRequest()
 
-            // YOLOv8n object detector — 80 COCO classes (laptop, bottle,
-            // chair, car, dog, etc.). Real concrete labels.
+            // YOLOv8n-OIV7 object detector — 600 Open Images classes.
+            // .centerCrop = take the center square of the camera frame and
+            // feed that to YOLO. Critical for blind UX: the user is pointing
+            // the phone at something, so we only care about what's in the
+            // center of view, NOT the bed at the right edge of the frame.
             var requests: [VNRequest] = [textRequest, faceRequest]
             let yoloRequest: VNCoreMLRequest? = self.yoloModel.map { model in
                 let req = VNCoreMLRequest(model: model)
-                req.imageCropAndScaleOption = .scaleFill
+                req.imageCropAndScaleOption = .centerCrop
                 return req
             }
             if let yoloRequest = yoloRequest { requests.append(yoloRequest) }
@@ -166,16 +178,23 @@ final class VisionManager {
 
         var parts: [String] = []
 
-        // 1. Text — keep up to 3 highest-confidence lines, drop noise (<0.4 conf,
-        //    or single-character results which are usually misreads).
+        // 1. Text — keep up to 3 highest-confidence lines. Drop noise:
+        //    low confidence, single chars, or single short words (likely
+        //    OCR misreads of furniture labels / patterns, e.g. "BED" on a
+        //    headboard which then duplicates with the YOLO label).
         if let textResults = textResults {
             let lines = textResults
                 .compactMap { obs -> String? in
                     guard let cand = obs.topCandidates(1).first,
-                          cand.confidence >= 0.4,
-                          cand.string.trimmingCharacters(in: .whitespaces).count > 1
+                          cand.confidence >= 0.5
                     else { return nil }
-                    return cand.string.trimmingCharacters(in: .whitespaces)
+                    let s = cand.string.trimmingCharacters(in: .whitespaces)
+                    // Require either multi-word OR contains a digit OR is
+                    // longer than 4 chars. Real signs are rarely 1-3 chars.
+                    let hasSpace = s.contains(" ")
+                    let hasDigit = s.rangeOfCharacter(from: .decimalDigits) != nil
+                    guard hasSpace || hasDigit || s.count > 4 else { return nil }
+                    return s
                 }
                 .prefix(3)
 
@@ -185,27 +204,43 @@ final class VisionManager {
             }
         }
 
-        // 2. Objects — YOLOv8n returns VNRecognizedObjectObservation, each
-        //    with a list of label/confidence pairs. We take the top label
-        //    per detection, drop "person" (face detector handles it), count
-        //    duplicates ("two bottles"), and cap at 4 distinct items.
+        // 2. Objects — YOLOv8n-OIV7 returns 600 Open Images classes.
+        //    Sort by distance-from-center so what the user is pointing at
+        //    is spoken first. Drop person sub-classes (face detector handles).
         if let yolo = yoloResults as? [VNRecognizedObjectObservation] {
+            let personLikeLabels: Set<String> = [
+                "person", "man", "woman", "boy", "girl",
+                "human face", "human head", "human body", "human eye",
+                "human nose", "human mouth", "human ear", "human hand",
+                "human arm", "human leg", "human foot", "clothing"
+            ]
+            // Sort detections by Euclidean distance of bbox center from
+            // (0.5, 0.5). Vision bbox is in normalized image coords (0–1).
+            let sorted = yolo
+                .filter { obs in
+                    guard obs.confidence >= 0.35,
+                          let top = obs.labels.first, top.confidence >= 0.35
+                    else { return false }
+                    return !personLikeLabels.contains(top.identifier.lowercased())
+                }
+                .sorted { a, b in
+                    let ax = a.boundingBox.midX - 0.5, ay = a.boundingBox.midY - 0.5
+                    let bx = b.boundingBox.midX - 0.5, by = b.boundingBox.midY - 0.5
+                    return (ax * ax + ay * ay) < (bx * bx + by * by)
+                }
+
             var counts: [String: Int] = [:]
-            var order: [String] = []  // preserve detection order for stable output
-            for obs in yolo {
-                guard obs.confidence >= 0.4,
-                      let top = obs.labels.first,
-                      top.confidence >= 0.4
-                else { continue }
+            var order: [String] = []  // preserve center-first order
+            for obs in sorted {
+                guard let top = obs.labels.first else { continue }
                 let label = top.identifier.lowercased()
-                if label == "person" { continue }   // faces handle people
                 if counts[label] == nil { order.append(label) }
                 counts[label, default: 0] += 1
             }
 
-            let phrases = order.prefix(4).map { label -> String in
+            let phrases = order.prefix(5).map { label -> String in
                 let n = counts[label] ?? 1
-                return n > 1 ? "\(numberWord(n)) \(pluralize(label))" : "a \(label)"
+                return n > 1 ? "\(numberWord(n)) \(pluralize(label))" : "\(article(for: label)) \(label)"
             }
 
             if !phrases.isEmpty {
@@ -271,10 +306,24 @@ final class VisionManager {
         }
     }
 
-    /// Naive English pluralization, good enough for COCO labels.
+    /// Naive English pluralization, good enough for OIV7 labels.
+    /// Pluralizes only the final word for multi-word labels ("light bulbs").
     private func pluralize(_ word: String) -> String {
-        if word.hasSuffix("s") || word.hasSuffix("x") { return word + "es" }
-        if word.hasSuffix("y") { return String(word.dropLast()) + "ies" }
-        return word + "s"
+        let parts = word.split(separator: " ")
+        guard let last = parts.last else { return word }
+        let pluralLast: String
+        let s = String(last)
+        if s.hasSuffix("s") || s.hasSuffix("x") { pluralLast = s + "es" }
+        else if s.hasSuffix("y") { pluralLast = String(s.dropLast()) + "ies" }
+        else { pluralLast = s + "s" }
+        return (parts.dropLast().joined(separator: " ") + " " + pluralLast)
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Pick "a" or "an" for natural speech ("a lamp", "an oven").
+    private func article(for word: String) -> String {
+        let vowels: Set<Character> = ["a", "e", "i", "o", "u"]
+        if let first = word.first, vowels.contains(first) { return "an" }
+        return "a"
     }
 }
