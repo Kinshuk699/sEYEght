@@ -7,6 +7,7 @@
 
 import ARKit
 import Vision
+import CoreML
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -33,6 +34,33 @@ final class VisionManager {
 
     /// Speech rate set from user settings (kept for API compatibility)
     var speechRate: Float = 0.5
+
+    /// YOLOv8n CoreML model, loaded once at init.
+    /// Compiled by Xcode at build time from `yolov8n.mlpackage` -> `yolov8n.mlmodelc`.
+    /// Not @Observable-tracked because it never changes after load.
+    @ObservationIgnored
+    private var yoloModel: VNCoreMLModel?
+
+    init() {
+        self.yoloModel = Self.loadYOLOModel()
+    }
+
+    private static func loadYOLOModel() -> VNCoreMLModel? {
+        do {
+            let config = MLModelConfiguration()
+            config.computeUnits = .all   // CPU + GPU + Neural Engine
+            guard let modelURL = Bundle.main.url(forResource: "yolov8n", withExtension: "mlmodelc") else {
+                print("[VisionManager] ❌ yolov8n.mlmodelc not found in bundle")
+                return nil
+            }
+            let model = try MLModel(contentsOf: modelURL, configuration: config)
+            print("[VisionManager] ✅ YOLOv8n loaded")
+            return try VNCoreMLModel(for: model)
+        } catch {
+            print("[VisionManager] ❌ YOLO load failed: \(error)")
+            return nil
+        }
+    }
 
     /// Capture current AR frame and describe it on-device.
     /// `closestDistance` is the LiDAR distance to the nearest obstacle in
@@ -81,14 +109,18 @@ final class VisionManager {
             // Face count via face rectangles (lighter than landmarks).
             let faceRequest = VNDetectFaceRectanglesRequest()
 
-            // Object recognition — Apple's built-in, on-device classifier.
-            // Returns labels like "laptop", "chair", "bottle", "car" with
-            // confidence scores. We filter to high-confidence + dedupe + drop
-            // the "person" class because the face detector handles people.
-            let objectRequest = VNClassifyImageRequest()
+            // YOLOv8n object detector — 80 COCO classes (laptop, bottle,
+            // chair, car, dog, etc.). Real concrete labels.
+            var requests: [VNRequest] = [textRequest, faceRequest]
+            let yoloRequest: VNCoreMLRequest? = self.yoloModel.map { model in
+                let req = VNCoreMLRequest(model: model)
+                req.imageCropAndScaleOption = .scaleFill
+                return req
+            }
+            if let yoloRequest = yoloRequest { requests.append(yoloRequest) }
 
             do {
-                try handler.perform([textRequest, faceRequest, objectRequest])
+                try handler.perform(requests)
             } catch {
                 print("[VisionManager] ❌ Vision analysis failed: \(error)")
                 DispatchQueue.main.async {
@@ -101,7 +133,7 @@ final class VisionManager {
             let description = self.buildDescription(
                 textResults: textRequest.results,
                 faceResults: faceRequest.results,
-                objectResults: objectRequest.results,
+                yoloResults: yoloRequest?.results,
                 closestDistance: closestDistance
             )
 
@@ -120,7 +152,7 @@ final class VisionManager {
     private func buildDescription(
         textResults: [VNRecognizedTextObservation]?,
         faceResults: [VNFaceObservation]?,
-        objectResults: [VNClassificationObservation]?,
+        yoloResults: [VNObservation]?,
         closestDistance: Float?
     ) -> String {
         // Too-close guard: if the closest LiDAR pixel is under ~0.4 m, the
@@ -153,26 +185,31 @@ final class VisionManager {
             }
         }
 
-        // 2. Objects — take top high-confidence labels, dedupe, drop noisy
-        //    abstract categories. We want concrete nouns the user can act on.
-        if let objects = objectResults {
-            let banned: Set<String> = [
-                "person", "people", "face", "head", "hand", "arm", "leg", "body",
-                "indoor", "outdoor", "room", "object", "animal", "plant",
-                "text", "document", "sign", "poster"  // text request handles these
-            ]
-            let labels = objects
-                .filter { $0.confidence >= 0.5 }
-                .prefix(8)
-                .map { $0.identifier.lowercased().replacingOccurrences(of: "_", with: " ") }
-                .filter { label in !banned.contains(where: { label.contains($0) }) }
+        // 2. Objects — YOLOv8n returns VNRecognizedObjectObservation, each
+        //    with a list of label/confidence pairs. We take the top label
+        //    per detection, drop "person" (face detector handles it), count
+        //    duplicates ("two bottles"), and cap at 4 distinct items.
+        if let yolo = yoloResults as? [VNRecognizedObjectObservation] {
+            var counts: [String: Int] = [:]
+            var order: [String] = []  // preserve detection order for stable output
+            for obs in yolo {
+                guard obs.confidence >= 0.4,
+                      let top = obs.labels.first,
+                      top.confidence >= 0.4
+                else { continue }
+                let label = top.identifier.lowercased()
+                if label == "person" { continue }   // faces handle people
+                if counts[label] == nil { order.append(label) }
+                counts[label, default: 0] += 1
+            }
 
-            // Dedupe while preserving order, cap at 4 items.
-            var seen = Set<String>()
-            let unique = labels.filter { seen.insert($0).inserted }.prefix(4)
+            let phrases = order.prefix(4).map { label -> String in
+                let n = counts[label] ?? 1
+                return n > 1 ? "\(numberWord(n)) \(pluralize(label))" : "a \(label)"
+            }
 
-            if !unique.isEmpty {
-                parts.append("In front of you: \(unique.joined(separator: ", "))")
+            if !phrases.isEmpty {
+                parts.append("In front of you: \(phrases.joined(separator: ", "))")
             }
         }
 
@@ -221,5 +258,23 @@ final class VisionManager {
     private func speakText(_ text: String) {
         print("[VisionManager] Speaking: \(text)")
         onSpeechRequest?(text)
+    }
+
+    /// Spell out small counts the way a human would.
+    private func numberWord(_ n: Int) -> String {
+        switch n {
+        case 2: return "two"
+        case 3: return "three"
+        case 4: return "four"
+        case 5: return "five"
+        default: return "\(n)"
+        }
+    }
+
+    /// Naive English pluralization, good enough for COCO labels.
+    private func pluralize(_ word: String) -> String {
+        if word.hasSuffix("s") || word.hasSuffix("x") { return word + "es" }
+        if word.hasSuffix("y") { return String(word.dropLast()) + "ies" }
+        return word + "s"
     }
 }
